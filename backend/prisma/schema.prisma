@@ -1,0 +1,265 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  FLEET_MANAGER
+  ACCOUNTS
+  STAFF
+}
+
+enum TaskType {
+  ASSIGNED
+  PERSONAL
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  DELEGATED
+  COMPLETED
+  OVERDUE
+}
+
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum VesselType {
+  BARGE
+  TUG
+}
+
+enum VesselStatus {
+  ACTIVE
+  IN_PORT
+  MAINTENANCE
+  NON_COMPLIANT
+}
+
+enum CertificateStatus {
+  VALID
+  EXPIRING_SOON
+  EXPIRED
+}
+
+enum VoucherStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  INFO_REQUESTED
+}
+
+model User {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  name                  String                  @db.VarChar(100)
+  email                 String                  @unique @db.VarChar(150)
+  passwordHash          String                  @map("password_hash") @db.Text
+  role                  Role
+  department            String?                 @db.VarChar(100)
+  isActive              Boolean                 @default(true) @map("is_active")
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
+  
+  tasksCreated          Task[]                  @relation("TaskCreator")
+  tasksAssigned         Task[]                  @relation("TaskAssignee")
+  delegatedFromLogs     TaskDelegationLog[]     @relation("DelegatedFrom")
+  delegatedToLogs       TaskDelegationLog[]     @relation("DelegatedTo")
+  vesselsUpdated        Vessel[]                @relation("VesselUpdater")
+  vesselLocationHistory VesselLocationHistory[] @relation("LocationUpdater")
+  vouchersSubmitted     ExpenseVoucher[]        @relation("VoucherSubmitter")
+  vouchersApproved      ExpenseVoucher[]        @relation("VoucherApprover")
+  auditLogs             AuditLog[]
+  notifications         Notification[]
+  taskComments          TaskComment[]
+
+  @@map("users")
+}
+
+model Task {
+  id           String              @id @default(uuid()) @db.Uuid
+  taskType     TaskType            @map("task_type")
+  title        String              @db.VarChar(255)
+  description  String?             @db.Text
+  createdById  String              @map("created_by_id") @db.Uuid
+  creator      User                @relation("TaskCreator", fields: [createdById], references: [id])
+  assignedToId String?             @map("assigned_to_id") @db.Uuid
+  assignee     User?               @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  dueDate      DateTime            @map("due_date") @db.Date
+  priority     Priority
+  status       TaskStatus          @default(PENDING)
+  completedAt  DateTime?           @map("completed_at")
+  deletedAt    DateTime?           @map("deleted_at")
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+  isDeleted    Boolean             @default(false) @map("is_deleted")
+
+  delegationLogs TaskDelegationLog[]
+  comments       TaskComment[]
+
+  @@index([assignedToId])
+  @@index([createdById])
+  @@index([taskType])
+  @@index([status])
+  @@index([dueDate])
+  @@map("tasks")
+}
+
+model TaskDelegationLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  taskId       String   @map("task_id") @db.Uuid
+  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fromUserId   String   @map("from_user_id") @db.Uuid
+  fromUser     User     @relation("DelegatedFrom", fields: [fromUserId], references: [id])
+  toUserId     String   @map("to_user_id") @db.Uuid
+  toUser       User     @relation("DelegatedTo", fields: [toUserId], references: [id])
+  delegatedAt  DateTime @default(now()) @map("delegated_at")
+  note         String?  @db.Text
+
+  @@index([taskId])
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@map("task_delegation_logs")
+}
+
+model TaskComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  taskId    String   @map("task_id") @db.Uuid
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id])
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([taskId])
+  @@index([userId])
+  @@map("task_comments")
+}
+
+model Vessel {
+  id              String                  @id @default(uuid()) @db.Uuid
+  name            String                  @db.VarChar(150)
+  registrationNo  String                  @unique @map("registration_no") @db.VarChar(100)
+  type            VesselType
+  currentLocation String                  @map("current_location") @db.VarChar(255)
+  latitude        Decimal?                @db.Decimal(9, 6)
+  longitude       Decimal?                @db.Decimal(9, 6)
+  status          VesselStatus
+  updatedById     String?                 @map("updated_by_id") @db.Uuid
+  updatedBy       User?                   @relation("VesselUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedAt       DateTime                @updatedAt @map("updated_at")
+  deletedAt       DateTime?               @map("deleted_at")
+
+  locationHistory VesselLocationHistory[]
+  certifications  Certification[]
+
+  @@index([type])
+  @@index([status])
+  @@index([updatedAt])
+  @@map("vessels")
+}
+
+model VesselLocationHistory {
+  id         String   @id @default(uuid()) @db.Uuid
+  vesselId   String   @map("vessel_id") @db.Uuid
+  vessel     Vessel   @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  location   String   @db.VarChar(255)
+  latitude   Decimal? @db.Decimal(9, 6)
+  longitude  Decimal? @db.Decimal(9, 6)
+  updatedById String   @map("updated_by_id") @db.Uuid
+  updatedBy  User     @relation("LocationUpdater", fields: [updatedById], references: [id])
+  updatedAt  DateTime @default(now()) @map("updated_at")
+
+  @@index([vesselId])
+  @@index([updatedById])
+  @@map("vessel_location_histories")
+}
+
+model Certification {
+  id               String            @id @default(uuid()) @db.Uuid
+  vesselId         String?           @map("vessel_id") @db.Uuid
+  vessel           Vessel?           @relation(fields: [vesselId], references: [id], onDelete: SetNull)
+  assetType        String            @map("asset_type") @db.VarChar(100)
+  certType         String            @map("cert_type") @db.VarChar(150)
+  certNumber       String            @map("cert_number") @db.VarChar(150)
+  issuingAuthority String            @map("issuing_authority") @db.VarChar(200)
+  issueDate        DateTime          @map("issue_date") @db.Date
+  expiryDate       DateTime          @map("expiry_date") @db.Date
+  documentUrl      String?           @map("document_url") @db.Text
+  status           CertificateStatus @default(VALID)
+  createdAt        DateTime          @default(now()) @map("created_at")
+
+  alertLogs        CertAlertLog[]
+
+  @@index([vesselId])
+  @@map("certifications")
+}
+
+model CertAlertLog {
+  id            String        @id @default(uuid()) @db.Uuid
+  certificateId String        @map("certificate_id") @db.Uuid
+  certificate   Certification @relation(fields: [certificateId], references: [id], onDelete: Cascade)
+  alertWindow   Int           @map("alert_window")
+  sentAt        DateTime      @default(now()) @map("sent_at")
+
+  @@unique([certificateId, alertWindow])
+  @@index([certificateId])
+  @@map("cert_alert_logs")
+}
+
+model ExpenseVoucher {
+  id             String        @id @default(uuid()) @db.Uuid
+  submittedById  String        @map("submitted_by_id") @db.Uuid
+  submittedBy    User          @relation("VoucherSubmitter", fields: [submittedById], references: [id])
+  expenseType    String        @map("expense_type") @db.VarChar(100)
+  amount         Decimal       @db.Decimal(12, 2)
+  expenseDate    DateTime      @map("expense_date") @db.Date
+  vendorName     String        @map("vendor_name") @db.VarChar(200)
+  description    String?       @db.Text
+  receiptUrls    String[]      @map("receipt_urls")
+  status         VoucherStatus @default(PENDING)
+  approvedById   String?       @map("approved_by_id") @db.Uuid
+  approvedBy     User?         @relation("VoucherApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approverNote   String?       @map("approver_note") @db.Text
+  submittedAt    DateTime      @default(now()) @map("submitted_at")
+  actionedAt     DateTime?     @map("actioned_at")
+
+  @@index([submittedById])
+  @@index([approvedById])
+  @@map("expense_vouchers")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String   @db.VarChar(255)
+  details   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String   @db.VarChar(255)
+  message   String   @db.Text
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("notifications")
+}
