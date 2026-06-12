@@ -82,6 +82,10 @@ model User {
   auditLogs             AuditLog[]
   notifications         Notification[]
   taskComments          TaskComment[]
+  botMessagesSent       BotMessage[]            @relation("BotMessageSender")
+  botMessagesReceived   BotMessage[]            @relation("BotMessageReceiver")
+  botReminders          BotReminder[]           @relation("BotReminderAssignee")
+  contacts              UserContact[]
 
   @@map("users")
 }
@@ -106,6 +110,8 @@ model Task {
 
   delegationLogs TaskDelegationLog[]
   comments       TaskComment[]
+  botCommands    BotCommand[]
+  botReminders   BotReminder[]
 
   @@index([assignedToId])
   @@index([createdById])
@@ -272,4 +278,107 @@ model Notification {
 
   @@index([userId])
   @@map("notifications")
+}
+
+enum BotChannel {
+  WHATSAPP
+  INTERNAL_TEST
+}
+
+enum BotMessageDirection {
+  INCOMING
+  OUTGOING
+}
+
+enum BotCommandStatus {
+  PARSED
+  EXECUTED
+  NEEDS_CONFIRMATION
+  FAILED
+}
+
+enum BotReminderType {
+  TASK_PENDING
+}
+
+enum BotReminderStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+model UserContact {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String     @map("user_id") @db.Uuid
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phoneNumber String     @map("phone_number") @db.VarChar(50)
+  channel     BotChannel @default(WHATSAPP)
+  isVerified  Boolean    @default(false) @map("is_verified")
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  @@unique([userId, phoneNumber, channel])
+  @@index([userId])
+  @@map("user_contacts")
+}
+
+model BotMessage {
+  id                String              @id @default(uuid()) @db.Uuid
+  direction         BotMessageDirection
+  channel           BotChannel
+  fromUserId        String?             @map("from_user_id") @db.Uuid
+  fromUser          User?               @relation("BotMessageSender", fields: [fromUserId], references: [id], onDelete: SetNull)
+  toUserId          String?             @map("to_user_id") @db.Uuid
+  toUser            User?               @relation("BotMessageReceiver", fields: [toUserId], references: [id], onDelete: SetNull)
+  fromPhone         String?             @map("from_phone") @db.VarChar(50)
+  toPhone           String?             @map("to_phone") @db.VarChar(50)
+  rawText           String              @map("raw_text") @db.Text
+  messageType       String              @default("TEXT") @map("message_type") @db.VarChar(50)
+  status            String              @default("PENDING") @db.VarChar(50)
+  providerMessageId String?             @map("provider_message_id") @db.VarChar(255)
+  createdAt         DateTime            @default(now()) @map("created_at")
+
+  botCommands       BotCommand[]
+
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@index([channel])
+  @@index([createdAt])
+  @@map("bot_messages")
+}
+
+model BotCommand {
+  id            String           @id @default(uuid()) @db.Uuid
+  botMessageId  String           @map("bot_message_id") @db.Uuid
+  botMessage    BotMessage       @relation(fields: [botMessageId], references: [id], onDelete: Cascade)
+  intent        String           @db.VarChar(100)
+  confidence    Float            @default(1.0)
+  parsedJson    Json             @map("parsed_json")
+  linkedTaskId  String?          @map("linked_task_id") @db.Uuid
+  linkedTask    Task?            @relation(fields: [linkedTaskId], references: [id], onDelete: SetNull)
+  status        BotCommandStatus @default(PARSED)
+  createdAt     DateTime         @default(now()) @map("created_at")
+
+  @@index([botMessageId])
+  @@index([linkedTaskId])
+  @@map("bot_commands")
+}
+
+model BotReminder {
+  id             String            @id @default(uuid()) @db.Uuid
+  taskId         String            @map("task_id") @db.Uuid
+  task           Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  assignedToId   String            @map("assigned_to_id") @db.Uuid
+  assignedTo     User              @relation("BotReminderAssignee", fields: [assignedToId], references: [id], onDelete: Cascade)
+  reminderType   BotReminderType   @default(TASK_PENDING) @map("reminder_type")
+  frequencyHours Int               @default(24) @map("frequency_hours")
+  nextReminderAt DateTime          @map("next_reminder_at")
+  lastReminderAt DateTime?         @map("last_reminder_at")
+  status         BotReminderStatus @default(ACTIVE)
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  @@index([taskId])
+  @@index([assignedToId])
+  @@index([status])
+  @@index([nextReminderAt])
+  @@map("bot_reminders")
 }

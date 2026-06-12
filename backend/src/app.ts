@@ -11,6 +11,7 @@ import userRoutes from './modules/users/users.routes';
 import vesselRoutes from './modules/vessels/vessels.routes';
 import certRoutes from './modules/certifications/certs.routes';
 import voucherRoutes from './modules/vouchers/vouchers.routes';
+import botRoutes from './modules/bot/bot.routes';
 
 const app = express();
 
@@ -63,6 +64,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/vessels', vesselRoutes);
 app.use('/api/certs', certRoutes);
 app.use('/api/vouchers', voucherRoutes);
+app.use('/api/bot', botRoutes);
 
 
 // 404 Route handler

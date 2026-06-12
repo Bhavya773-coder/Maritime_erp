@@ -114,15 +114,13 @@ The client will run on `http://localhost:5173`.
 
 ---
 
-## Completed in this Step (Phase 2 Task Management APIs)
-- [x] Schema & Migration: Updated `schema.prisma` to add `deletedAt` and `completedAt` to the `Task` model along with database indexes, and migrated to Supabase.
-- [x] Input Validation: Created Zod schemas for task creation, status changes, delegations, and comments.
-- [x] Service & Logic Layer: Implemented a robust service with complete permission boundaries, OWNER view-all access, and MANAGER/STAFF assigned and personal tasks segregation rules.
-- [x] Delegation Tracking: Configured cascading delegation logging that captures timestamps, from/to user pointers, and custom notes.
-- [x] Comments Thread: Added comment thread logging attached to tasks with strict validation.
-- [x] Delete Protection: Banned hard deletions on assigned tasks and implemented creator/owner permissions checks for personal tasks.
-- [x] Overdue cron helper: Implemented overdue scanning and logging.
-- [x] Verification Script: Wrote a PowerShell validation script (`verify_tasks.ps1`) testing all 11 endpoints of the Task Management API.
+## Completed in this Step (Phase 5: ERP Bot Core Backend)
+- [x] Schema & Migration: Updated `schema.prisma` with `UserContact`, `BotMessage`, `BotCommand`, and `BotReminder` models, enums and relationships, and applied migrations.
+- [x] Command Parser: Developed a deterministic regex-based text command parser in `bot.parser.ts` to extract action, title, assignee name, assets references, due dates, and priorities.
+- [x] Assignee Resolution: Implemented name token prefix matching and department mapping logic inside `bot.service.ts` to assign tasks accurately or raise ambiguity prompts.
+- [x] Service Operations: Created automated task execution flow that updates DB records, registers active reminders, records notifications, and adds audit trail logs.
+- [x] API Gateways: Configured test-command, messages list, reminders list, and reminders pause endpoints with strict RBAC rules.
+- [x] Verification Script: Wrote a PowerShell validation script (`verify_bot.ps1`) to test command workflows, ambiguity checks, and RBAC guards.
 
 ---
 
@@ -135,6 +133,7 @@ powershell -ExecutionPolicy Bypass -File .\verify_tasks.ps1
 powershell -ExecutionPolicy Bypass -File .\verify_vessels.ps1
 powershell -ExecutionPolicy Bypass -File .\verify_certs.ps1
 powershell -ExecutionPolicy Bypass -File .\verify_vouchers.ps1
+powershell -ExecutionPolicy Bypass -File .\verify_bot.ps1
 ```
 
 ### Frontend Build & Typecheck
@@ -165,5 +164,6 @@ For testing purposes, you can use the following default credentials (automatical
 - Certification backend done
 - Certification frontend done
 - Digital Expense Voucher backend done
-- Next: Digital Expense Voucher Frontend UI
+- Bot Core Backend done
+- Next: WhatsApp Webhook Integration
 
