@@ -3,15 +3,12 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { 
   Ship, CheckSquare, FileText, ShieldAlert, 
-  LogOut, User as UserIcon, Bell, ChevronRight, BarChart3, Settings
+  Bell, ChevronRight
 } from 'lucide-react';
+import Sidebar from '../components/Sidebar';
 
 const Dashboard: React.FC = () => {
-  const { user, logout } = useAuth();
-
-  const handleLogout = async () => {
-    await logout();
-  };
+  const { user } = useAuth();
 
   const placeholderStats = {
     tasks: { pending: 12, inProgress: 4, overdue: 2 },
@@ -23,63 +20,7 @@ const Dashboard: React.FC = () => {
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100 font-sans">
       {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0">
-        <div>
-          {/* Brand header */}
-          <div className="h-16 flex items-center px-6 border-b border-slate-800 space-x-3 text-brand-500">
-            <Ship className="h-6 w-6" />
-            <span className="font-bold text-lg text-white tracking-wide">Sagar Shipping</span>
-          </div>
-
-          {/* Navigation links */}
-          <nav className="mt-6 px-4 space-y-1">
-            <Link to="/dashboard" className="flex items-center space-x-3 px-4 py-3 rounded-lg bg-brand-600/10 text-brand-400 font-medium transition-all">
-              <BarChart3 className="h-5 w-5" />
-              <span>Dashboard</span>
-            </Link>
-            <Link to="/tasks" className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 font-medium transition-all">
-              <CheckSquare className="h-5 w-5" />
-              <span>Tasks</span>
-            </Link>
-            <Link to="/fleet" className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 font-medium transition-all">
-              <Ship className="h-5 w-5" />
-              <span>Fleet Manager</span>
-            </Link>
-            <a href="#" className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 font-medium transition-all">
-              <ShieldAlert className="h-5 w-5" />
-              <span>Certificates</span>
-            </a>
-            <a href="#" className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 font-medium transition-all">
-              <FileText className="h-5 w-5" />
-              <span>Expense Vouchers</span>
-            </a>
-            <a href="#" className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 font-medium transition-all">
-              <Settings className="h-5 w-5" />
-              <span>Admin Settings</span>
-            </a>
-          </nav>
-        </div>
-
-        {/* User profile actions */}
-        <div className="p-4 border-t border-slate-800">
-          <div className="flex items-center space-x-3 px-2 mb-4">
-            <div className="h-10 w-10 rounded-full bg-brand-600/20 flex items-center justify-center text-brand-400">
-              <UserIcon className="h-5 w-5" />
-            </div>
-            <div className="overflow-hidden">
-              <p className="text-sm font-semibold truncate text-white">{user?.name}</p>
-              <p className="text-xs text-slate-500 truncate capitalize">{user?.role.toLowerCase().replace('_', ' ')}</p>
-            </div>
-          </div>
-          <button 
-            onClick={handleLogout}
-            className="flex items-center space-x-3 px-4 py-2.5 w-full rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 font-medium text-sm transition-all cursor-pointer"
-          >
-            <LogOut className="h-4 w-4" />
-            <span>Logout</span>
-          </button>
-        </div>
-      </aside>
+      <Sidebar activePage="dashboard" />
 
       {/* Main Workspace */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
@@ -218,10 +159,10 @@ const Dashboard: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <button className="mt-6 flex items-center justify-center space-x-2 text-sm font-semibold text-brand-400 group-hover:text-brand-300 transition-all cursor-pointer">
+              <Link to="/certifications" className="mt-6 flex items-center justify-center space-x-2 text-sm font-semibold text-brand-400 group-hover:text-brand-300 transition-all cursor-pointer">
                 <span>View Compliance Status</span>
                 <ChevronRight className="h-4 w-4" />
-              </button>
+              </Link>
             </div>
 
             {/* Card 4: Expense Vouchers */}

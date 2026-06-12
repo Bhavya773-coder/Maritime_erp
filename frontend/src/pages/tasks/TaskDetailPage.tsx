@@ -16,8 +16,9 @@ import { DelegationChain } from '../../components/tasks/DelegationChain';
 import { TaskComments } from '../../components/tasks/TaskComments';
 import { 
   ArrowLeft, Calendar, User, UserCheck, 
-  Trash2, Send, AlertCircle, Ship 
+  Trash2, Send, AlertCircle
 } from 'lucide-react';
+import Sidebar from '../../components/Sidebar';
 
 const TaskDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -167,29 +168,7 @@ const TaskDetailPage: React.FC = () => {
     <div className="flex min-h-screen bg-slate-950 text-slate-100 font-sans">
       
       {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0 hidden md:flex">
-        <div>
-          <div className="h-16 flex items-center px-6 border-b border-slate-800 space-x-3 text-brand-500">
-            <Ship className="h-6 w-6" />
-            <span className="font-bold text-lg text-white tracking-wide">Sagar Shipping</span>
-          </div>
-
-          <nav className="mt-6 px-4 space-y-1">
-            <Link to="/dashboard" className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 font-medium transition-all">
-              <ArrowLeft className="h-5 w-5" />
-              <span>Dashboard</span>
-            </Link>
-            <Link to="/tasks" className="flex items-center space-x-3 px-4 py-3 rounded-lg bg-brand-600/10 text-brand-400 font-medium transition-all">
-              <Ship className="h-5 w-5" />
-              <span>Tasks</span>
-            </Link>
-            <Link to="/fleet" className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 font-medium transition-all">
-              <Ship className="h-5 w-5" />
-              <span>Fleet Manager</span>
-            </Link>
-          </nav>
-        </div>
-      </aside>
+      <Sidebar activePage="tasks" />
 
       {/* Main Workspace */}
       <div className="flex-1 flex flex-col min-w-0">

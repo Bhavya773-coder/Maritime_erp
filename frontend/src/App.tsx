@@ -6,6 +6,8 @@ import TasksPage from './pages/tasks/TasksPage';
 import TaskDetailPage from './pages/tasks/TaskDetailPage';
 import FleetPage from './pages/fleet/FleetPage';
 import VesselDetailPage from './pages/fleet/VesselDetailPage';
+import CertificationsPage from './pages/certifications/CertificationsPage';
+import CertificationDetailPage from './pages/certifications/CertificationDetailPage';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
@@ -51,6 +53,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <VesselDetailPage />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/certifications" 
+            element={
+              <ProtectedRoute>
+                <CertificationsPage />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/certifications/:id" 
+            element={
+              <ProtectedRoute>
+                <CertificationDetailPage />
               </ProtectedRoute>
             } 
           />
