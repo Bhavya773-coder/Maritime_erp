@@ -207,7 +207,12 @@ const CertificationsPage: React.FC = () => {
           )}
 
           {/* Compliance summary totals cards */}
-          {!loading && <ComplianceSummaryCards certifications={certifications} />}
+          {!loading && (
+            <div className="space-y-2">
+              <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtered Compliance Summary</h2>
+              <ComplianceSummaryCards certifications={certifications} />
+            </div>
+          )}
 
           {/* Filters Bar */}
           <CertificationFilters filters={filters} setFilters={setFilters} vessels={vessels} />

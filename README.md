@@ -159,11 +159,12 @@ For testing purposes, you can use the following default credentials (automatical
 ---
 
 ## Current Status
-* Foundation done
-* Auth/RBAC done
-* Task Management backend done
-* Task Management frontend done
-* Fleet Location Tracker backend done
-* Fleet Location Tracker frontend done
-* Certification & Compliance Tracker Backend APIs done
-* Current next step: Certification & Compliance Tracker Frontend UI
+- Foundation done
+- Auth/RBAC done
+- Task backend done
+- Task frontend done
+- Fleet backend done
+- Fleet frontend done
+- Certification backend done
+- Certification frontend done
+- Next: Digital Expense Voucher Backend APIs
