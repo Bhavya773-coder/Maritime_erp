@@ -1,9 +1,6 @@
-import { PrismaClient, Role, VesselType, VesselStatus } from '@prisma/client';
-
-const prisma = new PrismaClient();
-
-// Helper error class in case AppError isn't exported globally or structure is different
-// Let's import AppError from central errors or middleware if available
+import { Role, VesselType, VesselStatus } from '@prisma/client';
+import prisma from '../../config/db';
+import { randomUUID } from 'crypto';
 import { AppError } from '../../middleware/error';
 
 interface CreateVesselPayload {
@@ -138,11 +135,14 @@ export class VesselsService {
       throw new AppError('Creator user not found.', 404);
     }
 
+    const vesselId = randomUUID();
+
     // Execute in a transaction
-    const result = await prisma.$transaction(async (tx) => {
+    const [vessel] = await prisma.$transaction([
       // 1. Create vessel
-      const vessel = await tx.vessel.create({
+      prisma.vessel.create({
         data: {
+          id: vesselId,
           name: payload.name,
           registrationNo: payload.registrationNo,
           type: payload.type,
@@ -152,32 +152,30 @@ export class VesselsService {
           status: payload.status || VesselStatus.IN_PORT,
           updatedById: creatorId,
         },
-      });
+      }),
 
       // 2. Create initial location history record
-      await tx.vesselLocationHistory.create({
+      prisma.vesselLocationHistory.create({
         data: {
-          vesselId: vessel.id,
+          vesselId: vesselId,
           location: payload.currentLocation,
           latitude: payload.latitude,
           longitude: payload.longitude,
           updatedById: creatorId,
         },
-      });
+      }),
 
       // 3. Log to AuditLog
-      await tx.auditLog.create({
+      prisma.auditLog.create({
         data: {
           userId: creatorId,
           action: 'VESSEL_CREATED',
           details: `Vessel "${payload.name}" (${payload.type}) created with registration number ${payload.registrationNo} by ${creator.name}.`,
         },
-      });
+      }),
+    ]);
 
-      return vessel;
-    });
-
-    return result;
+    return vessel;
   }
 
   /**
@@ -196,9 +194,9 @@ export class VesselsService {
       throw new AppError('Vessel not found.', 404);
     }
 
-    const result = await prisma.$transaction(async (tx) => {
+    const [updatedVessel, historyEntry] = await prisma.$transaction([
       // 1. Update vessel state
-      const updatedVessel = await tx.vessel.update({
+      prisma.vessel.update({
         where: { id },
         data: {
           currentLocation: payload.currentLocation,
@@ -217,10 +215,10 @@ export class VesselsService {
             },
           },
         },
-      });
+      }),
 
       // 2. Insert new location history entry
-      const historyEntry = await tx.vesselLocationHistory.create({
+      prisma.vesselLocationHistory.create({
         data: {
           vesselId: id,
           location: payload.currentLocation,
@@ -238,24 +236,22 @@ export class VesselsService {
             },
           },
         },
-      });
+      }),
 
       // 3. Write to AuditLog
-      await tx.auditLog.create({
+      prisma.auditLog.create({
         data: {
           userId: user.id,
           action: 'VESSEL_LOCATION_UPDATED',
           details: `Vessel "${vessel.name}" location updated to "${payload.currentLocation}" (lat: ${payload.latitude}, lng: ${payload.longitude}, status: ${payload.status}) by ${user.name}.`,
         },
-      });
+      }),
+    ]);
 
-      return {
-        vessel: updatedVessel,
-        latestHistory: historyEntry,
-      };
-    });
-
-    return result;
+    return {
+      vessel: updatedVessel,
+      latestHistory: historyEntry,
+    };
   }
 
   /**
