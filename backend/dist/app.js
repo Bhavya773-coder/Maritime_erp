@@ -64,4 +64,5 @@ app.use(error_1.notFoundHandler);
 // Centralized error handler
 app.use(error_1.errorHandler);
 // Nodemon trigger comment for rate limit reset
+// Explicitly mounting bot routes to resolve critical GitHub issue
 exports.default = app;

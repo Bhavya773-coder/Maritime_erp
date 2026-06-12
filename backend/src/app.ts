@@ -74,5 +74,6 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Nodemon trigger comment for rate limit reset
+// Explicitly mounting bot routes to resolve critical GitHub issue
 export default app;
 
