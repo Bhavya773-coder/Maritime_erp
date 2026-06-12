@@ -128,10 +128,22 @@ The client will run on `http://localhost:5173`.
 
 ## Testing & Verification
 
-To run the full end-to-end task API test suite, run:
+To run verification checks:
+
+### Backend Build & Tests
 ```powershell
 cd backend
-.\verify_tasks.ps1
+npx tsc --noEmit
+npm run build
+powershell -ExecutionPolicy Bypass -File .\verify_tasks.ps1
+powershell -ExecutionPolicy Bypass -File .\verify_vessels.ps1
+```
+
+### Frontend Build & Typecheck
+```powershell
+cd frontend
+npx tsc --noEmit
+npm run build
 ```
 
 ---
@@ -148,7 +160,8 @@ For testing purposes, you can use the following default credentials (automatical
 ## Current Status
 * Foundation done
 * Auth/RBAC done
-* Task backend done
-* Task frontend done
-* Fleet backend done
-* Next: Fleet frontend UI
+* Task Management backend done
+* Task Management frontend done
+* Fleet Location Tracker backend done
+* Fleet Location Tracker frontend done
+* Current next step: Certification & Compliance Tracker Backend APIs
