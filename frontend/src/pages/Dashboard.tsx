@@ -41,10 +41,10 @@ const Dashboard: React.FC = () => {
               <CheckSquare className="h-5 w-5" />
               <span>Tasks</span>
             </Link>
-            <a href="#" className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 font-medium transition-all">
+            <Link to="/fleet" className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 font-medium transition-all">
               <Ship className="h-5 w-5" />
               <span>Fleet Manager</span>
-            </a>
+            </Link>
             <a href="#" className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 font-medium transition-all">
               <ShieldAlert className="h-5 w-5" />
               <span>Certificates</span>
@@ -184,10 +184,10 @@ const Dashboard: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <button className="mt-6 flex items-center justify-center space-x-2 text-sm font-semibold text-brand-400 group-hover:text-brand-300 transition-all cursor-pointer">
+              <Link to="/fleet" className="mt-6 flex items-center justify-center space-x-2 text-sm font-semibold text-brand-400 group-hover:text-brand-300 transition-all cursor-pointer">
                 <span>View Fleet Map</span>
                 <ChevronRight className="h-4 w-4" />
-              </button>
+              </Link>
             </div>
 
             {/* Card 3: Compliance & Certificates */}

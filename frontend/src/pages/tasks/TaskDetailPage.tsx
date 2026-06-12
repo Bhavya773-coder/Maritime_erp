@@ -183,6 +183,10 @@ const TaskDetailPage: React.FC = () => {
               <Ship className="h-5 w-5" />
               <span>Tasks</span>
             </Link>
+            <Link to="/fleet" className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 font-medium transition-all">
+              <Ship className="h-5 w-5" />
+              <span>Fleet Manager</span>
+            </Link>
           </nav>
         </div>
       </aside>
