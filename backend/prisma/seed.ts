@@ -81,6 +81,13 @@ async function main() {
       role: Role.FLEET_MANAGER,
       department: 'Fleet',
     },
+    {
+      name: 'Manager Admin',
+      email: 'manager@sagarshipping.local',
+      passwordHash,
+      role: Role.MANAGER,
+      department: 'Management',
+    },
   ];
 
   console.log('Seeding users...');

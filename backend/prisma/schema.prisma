@@ -189,7 +189,7 @@ model Certification {
   id               String            @id @default(uuid()) @db.Uuid
   vesselId         String?           @map("vessel_id") @db.Uuid
   vessel           Vessel?           @relation(fields: [vesselId], references: [id], onDelete: SetNull)
-  assetType        String            @map("asset_type") @db.VarChar(100)
+  assetType        String?           @map("asset_type") @db.VarChar(100)
   certType         String            @map("cert_type") @db.VarChar(150)
   certNumber       String            @map("cert_number") @db.VarChar(150)
   issuingAuthority String            @map("issuing_authority") @db.VarChar(200)
@@ -198,10 +198,14 @@ model Certification {
   documentUrl      String?           @map("document_url") @db.Text
   status           CertificateStatus @default(VALID)
   createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
 
   alertLogs        CertAlertLog[]
 
   @@index([vesselId])
+  @@index([certType])
+  @@index([status])
+  @@index([expiryDate])
   @@map("certifications")
 }
 

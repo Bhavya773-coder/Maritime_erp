@@ -137,6 +137,7 @@ npx tsc --noEmit
 npm run build
 powershell -ExecutionPolicy Bypass -File .\verify_tasks.ps1
 powershell -ExecutionPolicy Bypass -File .\verify_vessels.ps1
+powershell -ExecutionPolicy Bypass -File .\verify_certs.ps1
 ```
 
 ### Frontend Build & Typecheck
@@ -164,4 +165,5 @@ For testing purposes, you can use the following default credentials (automatical
 * Task Management frontend done
 * Fleet Location Tracker backend done
 * Fleet Location Tracker frontend done
-* Current next step: Certification & Compliance Tracker Backend APIs
+* Certification & Compliance Tracker Backend APIs done
+* Current next step: Certification & Compliance Tracker Frontend UI

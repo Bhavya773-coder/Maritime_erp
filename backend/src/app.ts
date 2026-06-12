@@ -9,6 +9,7 @@ import authRoutes from './modules/auth/auth.routes';
 import taskRoutes from './modules/tasks/tasks.routes';
 import userRoutes from './modules/users/users.routes';
 import vesselRoutes from './modules/vessels/vessels.routes';
+import certRoutes from './modules/certifications/certs.routes';
 
 const app = express();
 
@@ -58,6 +59,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/vessels', vesselRoutes);
+app.use('/api/certs', certRoutes);
 
 // 404 Route handler
 app.use(notFoundHandler);
