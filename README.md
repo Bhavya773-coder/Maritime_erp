@@ -126,10 +126,6 @@ The client will run on `http://localhost:5173`.
 
 ---
 
-## Testing & Verification
-
-To run verification checks:
-
 ### Backend Build & Tests
 ```powershell
 cd backend
@@ -138,6 +134,7 @@ npm run build
 powershell -ExecutionPolicy Bypass -File .\verify_tasks.ps1
 powershell -ExecutionPolicy Bypass -File .\verify_vessels.ps1
 powershell -ExecutionPolicy Bypass -File .\verify_certs.ps1
+powershell -ExecutionPolicy Bypass -File .\verify_vouchers.ps1
 ```
 
 ### Frontend Build & Typecheck
@@ -167,4 +164,6 @@ For testing purposes, you can use the following default credentials (automatical
 - Fleet frontend done
 - Certification backend done
 - Certification frontend done
-- Next: Digital Expense Voucher Backend APIs
+- Digital Expense Voucher backend done
+- Next: Digital Expense Voucher Frontend UI
+

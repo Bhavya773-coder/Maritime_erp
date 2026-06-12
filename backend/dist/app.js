@@ -15,6 +15,7 @@ const tasks_routes_1 = __importDefault(require("./modules/tasks/tasks.routes"));
 const users_routes_1 = __importDefault(require("./modules/users/users.routes"));
 const vessels_routes_1 = __importDefault(require("./modules/vessels/vessels.routes"));
 const certs_routes_1 = __importDefault(require("./modules/certifications/certs.routes"));
+const vouchers_routes_1 = __importDefault(require("./modules/vouchers/vouchers.routes"));
 const app = (0, express_1.default)();
 // Set security HTTP headers
 app.use((0, helmet_1.default)());
@@ -55,6 +56,7 @@ app.use('/api/tasks', tasks_routes_1.default);
 app.use('/api/users', users_routes_1.default);
 app.use('/api/vessels', vessels_routes_1.default);
 app.use('/api/certs', certs_routes_1.default);
+app.use('/api/vouchers', vouchers_routes_1.default);
 // 404 Route handler
 app.use(error_1.notFoundHandler);
 // Centralized error handler

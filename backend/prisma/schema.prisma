@@ -238,8 +238,14 @@ model ExpenseVoucher {
   submittedAt    DateTime      @default(now()) @map("submitted_at")
   actionedAt     DateTime?     @map("actioned_at")
 
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
   @@index([submittedById])
   @@index([approvedById])
+  @@index([status])
+  @@index([expenseType])
+  @@index([expenseDate])
+  @@index([actionedAt])
   @@map("expense_vouchers")
 }
 

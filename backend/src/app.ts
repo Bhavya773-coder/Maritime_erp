@@ -10,8 +10,10 @@ import taskRoutes from './modules/tasks/tasks.routes';
 import userRoutes from './modules/users/users.routes';
 import vesselRoutes from './modules/vessels/vessels.routes';
 import certRoutes from './modules/certifications/certs.routes';
+import voucherRoutes from './modules/vouchers/vouchers.routes';
 
 const app = express();
+
 
 // Set security HTTP headers
 app.use(helmet());
@@ -60,6 +62,8 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/vessels', vesselRoutes);
 app.use('/api/certs', certRoutes);
+app.use('/api/vouchers', voucherRoutes);
+
 
 // 404 Route handler
 app.use(notFoundHandler);
