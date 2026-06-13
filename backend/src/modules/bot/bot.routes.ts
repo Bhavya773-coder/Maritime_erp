@@ -11,11 +11,12 @@ import {
 } from './bot.controller';
 import { testCommandSchema } from './bot.schema';
 import whatsappRoutes from './whatsapp.routes';
+import { createContact, getContacts } from './whatsapp.controller';
 
 const router = Router();
 
-// Mount WhatsApp webhook and contacts subroutes (public/protected segregation handled internally)
-router.use(whatsappRoutes);
+// Mount WhatsApp webhook and test subroutes (public/protected segregation handled internally)
+router.use('/whatsapp', whatsappRoutes);
 
 // Middleware to validate UUID reminder ID params
 const validateReminderId = (req: Request, res: Response, next: NextFunction) => {
@@ -39,5 +40,9 @@ router.get('/messages', requireRole([Role.OWNER]), getMessages);
 router.get('/reminders', requireRole([Role.OWNER, Role.MANAGER]), getReminders);
 router.patch('/reminders/:id/pause', validateReminderId, requireRole([Role.OWNER, Role.MANAGER]), pauseReminder);
 router.post('/reminders/process-due', requireRole([Role.OWNER]), processDueReminders);
+
+// Contacts management (OWNER only)
+router.post('/contacts', requireRole([Role.OWNER]), createContact);
+router.get('/contacts', requireRole([Role.OWNER]), getContacts);
 
 export default router;

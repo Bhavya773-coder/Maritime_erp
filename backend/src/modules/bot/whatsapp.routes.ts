@@ -5,22 +5,18 @@ import {
   verifyWebhook,
   receiveWebhook,
   testWebhook,
-  createContact,
-  getContacts,
 } from './whatsapp.controller';
 
 const router = Router();
 
 // Webhook endpoints (Public for Meta verification and event updates)
-router.get('/whatsapp/webhook', verifyWebhook);
-router.post('/whatsapp/webhook', receiveWebhook);
+router.get('/webhook', verifyWebhook);
+router.post('/webhook', receiveWebhook);
 
 // Protected endpoints (Authenticated OWNER only)
 router.use(requireAuth);
 router.use(requireRole([Role.OWNER]));
 
-router.post('/whatsapp/test-webhook', testWebhook);
-router.post('/contacts', createContact);
-router.get('/contacts', getContacts);
+router.post('/test-webhook', testWebhook);
 
 export default router;
