@@ -28,6 +28,37 @@ export class WhatsAppService {
 
     const url = `https://graph.facebook.com/${env.WHATSAPP_API_VERSION}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
     
+    const maxLen = 4000;
+    if (message.length <= maxLen) {
+      return this.dispatchSingleMessage(url, cleanPhone, message);
+    } else {
+      const chunks: string[] = [];
+      let remaining = message;
+      while (remaining.length > 0) {
+        if (remaining.length <= maxLen) {
+          chunks.push(remaining);
+          break;
+        }
+        let splitIdx = remaining.lastIndexOf('\n', maxLen);
+        if (splitIdx === -1 || splitIdx < maxLen / 2) {
+          splitIdx = maxLen;
+        }
+        chunks.push(remaining.substring(0, splitIdx).trim());
+        remaining = remaining.substring(splitIdx).trim();
+      }
+
+      console.log(`[WhatsApp Service] Message too long (${message.length} chars). Splitting into ${chunks.length} chunks.`);
+      let lastRes: any = null;
+      for (const chunk of chunks) {
+        lastRes = await this.dispatchSingleMessage(url, cleanPhone, chunk);
+        // Add a slight delay to preserve delivery order on device
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      return lastRes;
+    }
+  }
+
+  private static async dispatchSingleMessage(url: string, cleanPhone: string, message: string): Promise<any> {
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -52,7 +83,6 @@ export class WhatsAppService {
       return await response.json();
     } catch (err: any) {
       console.error('[WhatsApp Service Exception]', err);
-      // Do not crash, log and return simulated response to avoid failing webhooks
       return { status: 'FAILED_SEND_FALLBACK_SIMULATED', error: err.message };
     }
   }

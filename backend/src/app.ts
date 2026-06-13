@@ -15,6 +15,9 @@ import botRoutes from './modules/bot/bot.routes';
 
 const app = express();
 
+// Trust proxy for rate limiting (Render deployment)
+app.set('trust proxy', 1);
+
 
 // Set security HTTP headers
 app.use(helmet());
