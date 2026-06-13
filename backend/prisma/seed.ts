@@ -150,6 +150,16 @@ async function main() {
     { name: 'KB 4', regNo: '4394', type: VesselType.TUG, location: 'Mangalore' },
   ];
 
+  console.log('Cleaning up old vessels...');
+  const activeRegNos = vesselsData.map((v) => v.regNo);
+  await prisma.vessel.deleteMany({
+    where: {
+      registrationNo: {
+        notIn: activeRegNos,
+      },
+    },
+  });
+
   console.log('Seeding vessels...');
   for (const v of vesselsData) {
     const coords = getCoords(v.location);

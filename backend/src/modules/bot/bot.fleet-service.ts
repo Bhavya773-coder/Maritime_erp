@@ -93,9 +93,11 @@ export class BotFleetService {
     if (vessels.length === 0) {
       return `${title}:\nNo vessels found.`;
     }
-    let response = `${title}:\n\n`;
+    let response = `${title}:\n`;
     vessels.forEach((v, index) => {
-      response += `${index + 1}. ${v.name} — ${v.status} — ${v.currentLocation}\n`;
+      const lat = v.latitude ? Number(v.latitude).toFixed(4) : 'N/A';
+      const lng = v.longitude ? Number(v.longitude).toFixed(4) : 'N/A';
+      response += `\n${index + 1}. ${v.name}\n   Reg No: ${v.registrationNo}\n   Status: ${v.status}\n   Location: ${v.currentLocation}\n   Coords: ${lat}, ${lng}\n`;
     });
     return response.trim();
   }

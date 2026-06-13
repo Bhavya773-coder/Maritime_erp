@@ -86,6 +86,95 @@ export class WhatsAppService {
   }
 
   /**
+   * Send WhatsApp interactive buttons message using Cloud API
+   */
+  public static async sendWhatsAppButtons(
+    toPhone: string, 
+    bodyText: string, 
+    buttons: Array<{ id: string; title: string }>
+  ): Promise<any> {
+    const cleanPhone = this.normalizePhone(toPhone);
+    
+    if (!env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID) {
+      console.log(`[SIMULATED WHATSAPP BUTTONS] To: ${cleanPhone}, Body: ${bodyText}, Buttons: ${JSON.stringify(buttons)}`);
+      return { status: 'SIMULATED_BUTTONS', to: cleanPhone, body: bodyText, buttons };
+    }
+
+    const url = `https://graph.facebook.com/${env.WHATSAPP_API_VERSION}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.WHATSAPP_ACCESS_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: cleanPhone,
+          type: 'interactive',
+          interactive: {
+            type: 'button',
+            body: {
+              text: bodyText
+            },
+            action: {
+              buttons: buttons.map(b => ({
+                type: 'reply',
+                reply: {
+                  id: b.id,
+                  title: b.title
+                }
+              }))
+            }
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[WhatsApp API Button Error] HTTP ${response.status}: ${errorText}`);
+        throw new Error(`WhatsApp API error: ${errorText}`);
+      }
+
+      return await response.json();
+    } catch (err: any) {
+      console.error('[WhatsApp Service Button Exception]', err);
+      return { status: 'FAILED_SEND_FALLBACK_SIMULATED', error: err.message };
+    }
+  }
+
+  /**
+   * Send WhatsApp buttons message and log as outgoing BotMessage
+   */
+  public static async sendWhatsAppButtonsAndLog(
+    toUserId: string | null,
+    toPhone: string,
+    bodyText: string,
+    buttons: Array<{ id: string; title: string }>
+  ): Promise<any> {
+    const cleanPhone = this.normalizePhone(toPhone);
+    const isSimulated = !env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID;
+    
+    await this.sendWhatsAppButtons(cleanPhone, bodyText, buttons);
+    
+    const status = isSimulated ? 'SIMULATED' : 'SENT';
+    const logText = `${bodyText}\n[Buttons: ${buttons.map(b => b.title).join(' | ')}]`;
+    
+    return await prisma.botMessage.create({
+      data: {
+        direction: 'OUTGOING',
+        channel: BotChannel.WHATSAPP,
+        toUserId,
+        toPhone: cleanPhone,
+        rawText: logText,
+        messageType: 'INTERACTIVE_BUTTON',
+        status,
+      },
+    });
+  }
+
+  /**
    * Meta Webhook verification
    */
   public static verifyWebhook(mode: string, verifyToken: string, challenge: string): string | null {
@@ -106,11 +195,21 @@ export class WhatsAppService {
             const value = change.value;
             if (value && value.messages) {
               for (const msg of value.messages) {
-                if (msg.type === 'text' && msg.text && msg.text.body) {
-                  const fromPhone = msg.from;
-                  const messageId = msg.id;
-                  const textBody = msg.text.body;
+                let textBody = '';
+                const fromPhone = msg.from;
+                const messageId = msg.id;
 
+                if (msg.type === 'text' && msg.text && msg.text.body) {
+                  textBody = msg.text.body;
+                } else if (msg.type === 'interactive' && msg.interactive) {
+                  if (msg.interactive.button_reply && msg.interactive.button_reply.title) {
+                    textBody = msg.interactive.button_reply.title;
+                  } else if (msg.interactive.list_reply && msg.interactive.list_reply.title) {
+                    textBody = msg.interactive.list_reply.title;
+                  }
+                }
+
+                if (textBody) {
                   await this.processIncomingMessage(fromPhone, textBody, messageId);
                 }
               }
@@ -151,6 +250,39 @@ export class WhatsAppService {
           ...owner!,
           name: `Unregistered (${cleanPhone})`,
         };
+
+    // Check if it is a menu/buttons/start/hi/hello/hey command
+    const cleanMsg = textBody.trim().toLowerCase();
+    if (cleanMsg === 'menu' || cleanMsg === 'buttons' || cleanMsg === 'start' || cleanMsg === 'hi' || cleanMsg === 'hello' || cleanMsg === 'hey') {
+      // 1. Log incoming BotMessage
+      await prisma.botMessage.create({
+        data: {
+          direction: 'INCOMING',
+          channel: BotChannel.WHATSAPP,
+          fromUserId: senderUser.id,
+          fromPhone: cleanPhone,
+          rawText: textBody,
+          messageType: 'TEXT',
+          status: 'RECEIVED',
+          providerMessageId,
+        },
+      });
+
+      const bodyText = `Welcome to Arvind Port & Infra Limited Bot Menu.\nPlease select an option below:`;
+      const buttons = [
+        { id: 'btn_show_barges', title: 'Show all barges' },
+        { id: 'btn_show_tugs', title: 'Show all tugs' },
+        { id: 'btn_status', title: 'STATUS' }
+      ];
+
+      const outgoing = await this.sendWhatsAppButtonsAndLog(senderUser.id, cleanPhone, bodyText, buttons);
+
+      return {
+        status: 'success',
+        message: bodyText,
+        outgoing: [outgoing],
+      };
+    }
 
     // Check if it is a reply command
     const replyCommand = BotReplyParser.parse(textBody);
