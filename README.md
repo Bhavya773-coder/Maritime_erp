@@ -165,5 +165,6 @@ For testing purposes, you can use the following default credentials (automatical
 - Certification frontend done
 - Digital Expense Voucher backend done
 - Bot Core Backend done
-- Next: WhatsApp Webhook Integration
+- WhatsApp Webhook Integration Backend done
+- Next: WhatsApp Reply Commands + Fleet Info Queries + Reminder Processing
 

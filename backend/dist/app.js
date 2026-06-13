@@ -33,7 +33,7 @@ app.use((0, cookie_parser_1.default)());
 // Rate limiting for auth routes specifically, or all API routes
 const apiLimiter = (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per window
+    max: env_1.env.NODE_ENV === 'development' || env_1.env.NODE_ENV === 'test' ? 10000 : 100, // Limit each IP to 100 requests per window
     standardHeaders: true,
     legacyHeaders: false,
     message: {

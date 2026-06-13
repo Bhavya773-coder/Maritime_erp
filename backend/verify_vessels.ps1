@@ -34,6 +34,26 @@ $loginOwnerRes = Assert-Step "1. Login as Owner" {
     return $res
 }
 
+# Cleanup test vessels to ensure repeatable runs
+Assert-Step "1b. Cleanup test vessels" {
+    $cleanupScript = @'
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+async function run() {
+  await prisma.vesselLocationHistory.deleteMany({
+    where: { vessel: { registrationNo: 'SSR-TUG-004' } }
+  });
+  await prisma.vessel.deleteMany({
+    where: { registrationNo: 'SSR-TUG-004' }
+  });
+}
+run().catch(console.error).finally(() => prisma.$disconnect());
+'@
+    $cleanupScript | Out-File -FilePath "cleanup_vessels.js" -Encoding utf8
+    node cleanup_vessels.js
+    Remove-Item "cleanup_vessels.js"
+}
+
 # 2. Get Vessels
 $vesselsRes = Assert-Step "2. Get Vessels" {
     $res = Invoke-RestMethod -Uri "$baseUrl/vessels" -Method Get -WebSession $script:ownerSession
