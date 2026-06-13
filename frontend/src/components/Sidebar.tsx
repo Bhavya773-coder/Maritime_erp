@@ -31,7 +31,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage }) => {
         {/* Brand header */}
         <div className="h-16 flex items-center px-6 border-b border-slate-800 space-x-3 text-brand-500">
           <Ship className="h-6 w-6" />
-          <span className="font-bold text-lg text-white tracking-wide">Sagar Shipping</span>
+          <span className="font-bold text-lg text-white tracking-wide">Arvind Port & Infra Limited</span>
         </div>
 
         {/* Navigation links */}

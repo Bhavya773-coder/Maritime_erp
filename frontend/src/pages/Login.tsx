@@ -31,7 +31,7 @@ const Login: React.FC = () => {
   };
 
   const handleTestCredentials = () => {
-    setEmail('owner@sagarshipping.local');
+    setEmail('owner@apil.local');
     setPassword('Password@123');
   };
 
@@ -47,7 +47,7 @@ const Login: React.FC = () => {
             <Ship className="h-9 w-9 animate-pulse" />
           </div>
           <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-white font-sans">
-            Sagar Shipping
+            Arvind Port & Infra Limited
           </h2>
           <p className="mt-2 text-sm text-slate-400">
             Maritime ERP Portal

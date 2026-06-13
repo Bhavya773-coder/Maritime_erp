@@ -9,7 +9,7 @@ export class BotFleetParser {
     const clean = text.trim().toLowerCase();
 
     // 1. Single vessel status
-    // Matches: "where is sagar tug 1", "status of sagar tug 1", "sagar tug 1 status", "where is sagar barge 2", "where is sagar tug 1?"
+    // Matches: "where is ARCADIA 1", "status of ARCADIA 1", "ARCADIA 1 status", "where is KB 26", "where is ARCADIA 1?"
     const whereIsMatch = clean.match(/^(?:where is|status of)\s+(.+?)(?:\?|$)/i);
     if (whereIsMatch) {
       return { type: 'SINGLE_VESSEL', vesselName: whereIsMatch[1].trim() };

@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $baseUrl = "http://localhost:5000/api"
 
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host "Sagar Shipping Maritime ERP - Vessel API Test" -ForegroundColor Cyan
+Write-Host "Arvind Port & Infra Limited - Vessel API Test" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 
 # Helper function to print results and assert step status
@@ -27,7 +27,7 @@ function Assert-Step($stepName, $scriptBlock) {
 $script:ownerSession = $null
 $loginOwnerRes = Assert-Step "1. Login as Owner" {
     $loginBody = @{
-        email = "owner@sagarshipping.local"
+        email = "owner@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:ownerSession
@@ -41,10 +41,10 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 async function run() {
   await prisma.vesselLocationHistory.deleteMany({
-    where: { vessel: { registrationNo: 'SSR-TUG-004' } }
+    where: { vessel: { registrationNo: 'APIL-TUG-004' } }
   });
   await prisma.vessel.deleteMany({
-    where: { registrationNo: 'SSR-TUG-004' }
+    where: { registrationNo: 'APIL-TUG-004' }
   });
 }
 run().catch(console.error).finally(() => prisma.$disconnect());
@@ -106,7 +106,7 @@ Assert-Step "6. PATCH First Vessel Location as Owner" {
 $script:fleetSession = $null
 Assert-Step "7. Login as Ramesh Mota (FLEET_MANAGER)" {
     $loginBody = @{
-        email = "ramesh@sagarshipping.local"
+        email = "ramesh@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:fleetSession
@@ -130,7 +130,7 @@ Assert-Step "8. PATCH First Vessel Location as Fleet Manager" {
 $script:accountsSession = $null
 Assert-Step "9. Login as Jaman Fadadu (ACCOUNTS)" {
     $loginBody = @{
-        email = "jaman@sagarshipping.local"
+        email = "jaman@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:accountsSession
@@ -166,7 +166,7 @@ Assert-Step "10. PATCH First Vessel Location as Accounts (Should FAIL 403)" {
 $script:ownerSession = $null
 Assert-Step "11. Login back as Owner" {
     $loginBody = @{
-        email = "owner@sagarshipping.local"
+        email = "owner@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:ownerSession
@@ -176,8 +176,8 @@ Assert-Step "11. Login back as Owner" {
 # 12. POST /api/vessels create test vessel — should PASS
 Assert-Step "12. Create New Vessel" {
     $newVesselBody = @{
-        name = "Sagar Tug 4"
-        registrationNo = "SSR-TUG-004"
+        name = "ARCADIA 4"
+        registrationNo = "APIL-TUG-004"
         type = "TUG"
         currentLocation = "Mumbai Port"
         latitude = 18.943
@@ -193,8 +193,8 @@ Assert-Step "12. Create New Vessel" {
 # 13. Try duplicate registrationNo — should FAIL cleanly
 Assert-Step "13. Try Duplicate Registration No (Should FAIL 400)" {
     $dupVesselBody = @{
-        name = "Sagar Tug 4 Duplicate"
-        registrationNo = "SSR-TUG-004"
+        name = "ARCADIA 4 Duplicate"
+        registrationNo = "APIL-TUG-004"
         type = "TUG"
         currentLocation = "Mumbai Port"
         latitude = 18.943
@@ -220,8 +220,8 @@ Assert-Step "13. Try Duplicate Registration No (Should FAIL 400)" {
 # 14. Try invalid latitude/longitude — should FAIL 400
 Assert-Step "14. Try Invalid Latitude/Longitude (Should FAIL 400)" {
     $invalidCoordsBody = @{
-        name = "Sagar Tug 5"
-        registrationNo = "SSR-TUG-005"
+        name = "ARCADIA 5"
+        registrationNo = "APIL-TUG-005"
         type = "TUG"
         currentLocation = "Mumbai Port"
         latitude = 95.0

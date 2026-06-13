@@ -22,7 +22,7 @@ export class BotReplyService {
 
     // 1. HELP command
     if (command.type === 'HELP') {
-      const helpText = 'Commands: DONE, UPDATE: message, STATUS, HELP. You can also ask: where is Sagar Tug 1, list barges, list tugs.';
+      const helpText = 'Commands: DONE, UPDATE: message, STATUS, HELP. You can also ask: where is ARCADIA 1, list barges, list tugs.';
       await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, helpText);
       return { status: 'success', message: helpText };
     }

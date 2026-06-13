@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $baseUrl = "http://localhost:5000/api"
 
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host "Sagar Shipping Maritime ERP - Bot Core API Test" -ForegroundColor Cyan
+Write-Host "Arvind Port & Infra Limited - Bot Core API Test" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 
 # Helper function to print results and assert step status
@@ -23,7 +23,7 @@ function Assert-Step($stepName, $scriptBlock) {
 $script:session = $null
 $loginRes = Assert-Step "1. Login as Owner" {
     $loginBody = @{
-        email = "owner@sagarshipping.local"
+        email = "owner@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:session
@@ -133,7 +133,7 @@ Assert-Step "10. Pause Reminder" {
 $script:accountsSession = $null
 Assert-Step "11. Login as Accounts User" {
     $loginBody = @{
-        email = "hardik@sagarshipping.local"
+        email = "hardik@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:accountsSession

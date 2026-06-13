@@ -142,7 +142,7 @@ export class WhatsAppService {
       },
     });
     const owner = await prisma.user.findFirst({
-      where: { email: 'owner@sagarshipping.local' },
+      where: { email: 'owner@apil.local' },
     });
 
     const senderUser = contact

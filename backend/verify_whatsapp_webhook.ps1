@@ -18,7 +18,7 @@ if (Test-Path ".env") {
 Write-Host "Using verify token: $verifyToken" -ForegroundColor Gray
 
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host "Sagar Shipping Maritime ERP - WhatsApp Webhook API Test" -ForegroundColor Cyan
+Write-Host "Arvind Port & Infra Limited - WhatsApp Webhook API Test" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 
 # Helper function to print results and assert step status
@@ -39,7 +39,7 @@ function Assert-Step($stepName, $scriptBlock) {
 $script:session = $null
 $loginRes = Assert-Step "1. Login as Owner" {
     $loginBody = @{
-        email = "owner@sagarshipping.local"
+        email = "owner@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:session
@@ -50,7 +50,7 @@ $loginRes = Assert-Step "1. Login as Owner" {
 # 2. Get Hardik Kateshiya ID
 Assert-Step "2. Get Hardik Kateshiya ID" {
     $loginBody = @{
-        email = "hardik.kateshiya@sagarshipping.local"
+        email = "hardik.kateshiya@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody
@@ -194,7 +194,7 @@ Assert-Step "10. GET /api/bot/contacts as Owner" {
 $script:accountsSession = $null
 Assert-Step "11. Login as Accounts" {
     $loginBody = @{
-        email = "jaman@sagarshipping.local"
+        email = "jaman@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:accountsSession

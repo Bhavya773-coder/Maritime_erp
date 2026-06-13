@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $baseUrl = "http://localhost:5000/api"
 
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host "Sagar Shipping Maritime ERP - WhatsApp Reply Commands & Reminder Test" -ForegroundColor Cyan
+Write-Host "Arvind Port & Infra Limited - WhatsApp Reply Commands & Reminder Test" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 
 # Helper function to print results and assert step status
@@ -23,7 +23,7 @@ function Assert-Step($stepName, $scriptBlock) {
 $script:session = $null
 $loginRes = Assert-Step "1. Login as Owner" {
     $loginBody = @{
-        email = "owner@sagarshipping.local"
+        email = "owner@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:session
@@ -34,7 +34,7 @@ $loginRes = Assert-Step "1. Login as Owner" {
 # 2. Get Hardik Kateshiya ID
 Assert-Step "2. Get Hardik Kateshiya ID" {
     $loginBody = @{
-        email = "hardik.kateshiya@sagarshipping.local"
+        email = "hardik.kateshiya@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody
@@ -45,7 +45,7 @@ Assert-Step "2. Get Hardik Kateshiya ID" {
 # 3. Get Gunvant ID
 Assert-Step "3. Get Gunvant ID" {
     $loginBody = @{
-        email = "gunvant@sagarshipping.local"
+        email = "gunvant@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody
@@ -59,7 +59,7 @@ Assert-Step "3b. Cleanup active tasks for Hardik Kateshiya and Gunvant" {
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 async function run() {
-  const hardik = await prisma.user.findFirst({ where: { email: 'hardik.kateshiya@sagarshipping.local' } });
+  const hardik = await prisma.user.findFirst({ where: { email: 'hardik.kateshiya@apil.local' } });
   if (hardik) {
     await prisma.task.updateMany({
       where: { assignedToId: hardik.id, status: { not: 'COMPLETED' } },
@@ -70,7 +70,7 @@ async function run() {
       data: { status: 'COMPLETED' }
     });
   }
-  const gunvant = await prisma.user.findFirst({ where: { email: 'gunvant@sagarshipping.local' } });
+  const gunvant = await prisma.user.findFirst({ where: { email: 'gunvant@apil.local' } });
   if (gunvant) {
     await prisma.task.updateMany({
       where: { assignedToId: gunvant.id, status: { not: 'COMPLETED' } },

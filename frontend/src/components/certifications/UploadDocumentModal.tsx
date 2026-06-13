@@ -90,7 +90,7 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({
               value={documentUrl}
               onChange={(e) => setDocumentUrl(e.target.value)}
               required
-              placeholder="e.g. https://s3.amazonaws.com/sagar-certs/surv.pdf"
+              placeholder="e.g. https://s3.amazonaws.com/apil-certs/surv.pdf"
               className="block w-full bg-slate-950 border border-slate-850 rounded-lg p-2.5 text-white text-xs placeholder-slate-650 focus:outline-none focus:ring-1 focus:ring-brand-500"
             />
           </div>

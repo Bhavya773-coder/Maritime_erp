@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $baseUrl = "http://localhost:5000/api"
 
 Write-Host "=====================================================" -ForegroundColor Cyan
-Write-Host "Sagar Shipping Maritime ERP - Certification API Test" -ForegroundColor Cyan
+Write-Host "Arvind Port & Infra Limited - Certification API Test" -ForegroundColor Cyan
 Write-Host "=====================================================" -ForegroundColor Cyan
 
 # Helper function to print results and assert step status
@@ -27,7 +27,7 @@ function Assert-Step($stepName, $scriptBlock) {
 $script:ownerSession = $null
 $loginOwnerRes = Assert-Step "1. Login as Owner" {
     $loginBody = @{
-        email = "owner@sagarshipping.local"
+        email = "owner@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:ownerSession
@@ -162,11 +162,11 @@ Assert-Step "8. PATCH /api/certs/:id" {
 # 9. POST /api/certs/:id/upload
 Assert-Step "9. POST /api/certs/:id/upload" {
     $body = @{
-        documentUrl = "https://s3.amazonaws.com/sagar-shipping-certs/survey_placeholder.pdf"
+        documentUrl = "https://s3.amazonaws.com/apil-certs/survey_placeholder.pdf"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/certs/$script:vesselCertId/upload" -Method Post -ContentType "application/json" -Body $body -WebSession $script:ownerSession
     Write-Host "Uploaded Document URL: $($res.data.cert.documentUrl)" -ForegroundColor Gray
-    if ($res.data.cert.documentUrl -ne "https://s3.amazonaws.com/sagar-shipping-certs/survey_placeholder.pdf") {
+    if ($res.data.cert.documentUrl -ne "https://s3.amazonaws.com/apil-certs/survey_placeholder.pdf") {
         throw "Failed to upload document Url"
     }
 }
@@ -198,7 +198,7 @@ Assert-Step "11. POST /api/certs/check-alerts" {
 $script:managerSession = $null
 Assert-Step "12. Login as Manager" {
     $loginBody = @{
-        email = "manager@sagarshipping.local"
+        email = "manager@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:managerSession
@@ -231,7 +231,7 @@ Assert-Step "12c. Update Cert as Manager (Allowed)" {
 $script:accountsSession = $null
 Assert-Step "13. Login as Accounts" {
     $loginBody = @{
-        email = "jaman@sagarshipping.local"
+        email = "jaman@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:accountsSession

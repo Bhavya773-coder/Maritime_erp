@@ -127,7 +127,7 @@ export const CreateVesselModal: React.FC<CreateVesselModalProps> = ({ isOpen, on
                 required
                 value={formData.name}
                 onChange={handleChange}
-                placeholder="e.g. Sagar Barge 5"
+                placeholder="e.g. KB 26"
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 px-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
             </div>

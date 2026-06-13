@@ -34,7 +34,7 @@ export class BotFleetService {
       }
 
       // Format response:
-      // “Sagar Tug 1
+      // “ARCADIA 1
       // Status: IN_PORT
       // Location: Jamnagar Port
       // Coordinates: 22.47, 70.05

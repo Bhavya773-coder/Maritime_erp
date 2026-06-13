@@ -1,6 +1,6 @@
-# Maritime ERP System - Sagar Shipping Pvt Ltd
+# Maritime ERP System - Arvind Port and Infra Limited
 
-A production-grade Maritime ERP system for Sagar Shipping Pvt Ltd.
+A production-grade Maritime ERP system for Arvind Port and Infra Limited.
 
 ## Monorepo Folder Structure
 
@@ -148,7 +148,7 @@ npm run build
 ## Test Login Credentials
 For testing purposes, you can use the following default credentials (automatically populated via the "Load Owner Admin Credentials" helper on the Login page):
 
-- **Email:** `owner@sagarshipping.local`
+- **Email:** `owner@apil.local`
 - **Password:** `Password@123`
 - **Role:** OWNER
 

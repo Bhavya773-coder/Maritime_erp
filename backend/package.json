@@ -1,7 +1,7 @@
 {
   "name": "maritime-erp-backend",
   "version": "1.0.0",
-  "description": "Backend API for Sagar Shipping Maritime ERP",
+  "description": "Backend API for Arvind Port and Infra Limited Maritime ERP",
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",

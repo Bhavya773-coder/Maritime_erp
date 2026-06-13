@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $baseUrl = "http://localhost:5000/api"
 
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host "Sagar Shipping Maritime ERP - WhatsApp Reply Commands & Fleet Query Test" -ForegroundColor Cyan
+Write-Host "Arvind Port & Infra Limited - WhatsApp Reply Commands & Fleet Query Test" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 
 # Helper function to print results and assert step status
@@ -23,7 +23,7 @@ function Assert-Step($stepName, $scriptBlock) {
 $script:session = $null
 $loginRes = Assert-Step "1. Login as Owner" {
     $loginBody = @{
-        email = "owner@sagarshipping.local"
+        email = "owner@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:session
@@ -34,7 +34,7 @@ $loginRes = Assert-Step "1. Login as Owner" {
 # 2. Get Hardik Kateshiya ID
 Assert-Step "2. Get Hardik Kateshiya ID" {
     $loginBody = @{
-        email = "hardik.kateshiya@sagarshipping.local"
+        email = "hardik.kateshiya@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody
@@ -45,7 +45,7 @@ Assert-Step "2. Get Hardik Kateshiya ID" {
 # 3. Get Gunvant ID
 Assert-Step "3. Get Gunvant ID" {
     $loginBody = @{
-        email = "gunvant@sagarshipping.local"
+        email = "gunvant@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody
@@ -56,7 +56,7 @@ Assert-Step "3. Get Gunvant ID" {
 # 3b. Get Jaman Fadadu ID (Accounts User)
 Assert-Step "3b. Get Jaman Fadadu (Accounts) ID" {
     $loginBody = @{
-        email = "jaman@sagarshipping.local"
+        email = "jaman@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody
@@ -70,7 +70,7 @@ Assert-Step "3c. Cleanup active tasks for Hardik Kateshiya and Gunvant" {
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 async function run() {
-  const hardik = await prisma.user.findFirst({ where: { email: 'hardik.kateshiya@sagarshipping.local' } });
+  const hardik = await prisma.user.findFirst({ where: { email: 'hardik.kateshiya@apil.local' } });
   if (hardik) {
     await prisma.task.updateMany({
       where: { assignedToId: hardik.id, status: { not: 'COMPLETED' } },
@@ -81,7 +81,7 @@ async function run() {
       data: { status: 'COMPLETED' }
     });
   }
-  const gunvant = await prisma.user.findFirst({ where: { email: 'gunvant@sagarshipping.local' } });
+  const gunvant = await prisma.user.findFirst({ where: { email: 'gunvant@apil.local' } });
   if (gunvant) {
     await prisma.task.updateMany({
       where: { assignedToId: gunvant.id, status: { not: 'COMPLETED' } },
@@ -218,11 +218,11 @@ Assert-Step "10b. Verify DONE results" {
     }
 }
 
-# 11. Send "Where is Sagar Tug 1?" from verified phone (Owner)
-$vesselRes = Assert-Step "11. Query Where is Sagar Tug 1?" {
+# 11. Send "Where is ARCADIA 1?" from verified phone (Owner)
+$vesselRes = Assert-Step "11. Query Where is ARCADIA 1?" {
     $body = @{
         fromPhone = "919999999999"
-        message = "Where is Sagar Tug 1?"
+        message = "Where is ARCADIA 1?"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/bot/whatsapp/test-webhook" -Method Post -ContentType "application/json" -Body $body -WebSession $script:session
     return $res
@@ -231,7 +231,7 @@ $vesselRes = Assert-Step "11. Query Where is Sagar Tug 1?" {
 Assert-Step "11b. Verify vessel status response" {
     if ($vesselRes.status -ne "success") { throw "Expected status 'success', got: $($vesselRes.status)" }
     Write-Host "  Vessel Info text:`n$($vesselRes.message)" -ForegroundColor Gray
-    if ($vesselRes.message -notmatch "Sagar Tug 1") { throw "Vessel info response missing vessel name" }
+    if ($vesselRes.message -notmatch "ARCADIA 1") { throw "Vessel info response missing vessel name" }
     if ($vesselRes.message -notmatch "Location:") { throw "Vessel info response missing location details" }
 }
 
@@ -248,7 +248,7 @@ $bargesRes = Assert-Step "12. Query Show all barges" {
 Assert-Step "12b. Verify barges list" {
     if ($bargesRes.status -ne "success") { throw "Expected status 'success', got: $($bargesRes.status)" }
     Write-Host "  Barges list:`n$($bargesRes.message)" -ForegroundColor Gray
-    if ($bargesRes.message -notmatch "Sagar Barge 1") { throw "Barges list missing Sagar Barge 1" }
+    if ($bargesRes.message -notmatch "KB 26") { throw "Barges list missing KB 26" }
 }
 
 # 13. Send "Show all tugs" from verified phone
@@ -264,7 +264,7 @@ $tugsRes = Assert-Step "13. Query Show all tugs" {
 Assert-Step "13b. Verify tugs list" {
     if ($tugsRes.status -ne "success") { throw "Expected status 'success', got: $($tugsRes.status)" }
     Write-Host "  Tugs list:`n$($tugsRes.message)" -ForegroundColor Gray
-    if ($tugsRes.message -notmatch "Sagar Tug 1") { throw "Tugs list missing Sagar Tug 1" }
+    if ($tugsRes.message -notmatch "ARCADIA 1") { throw "Tugs list missing ARCADIA 1" }
 }
 
 # 14. Send "Which vessels are in port?" from verified phone
@@ -347,10 +347,10 @@ Assert-Step "17b. Verify unregistered phone response" {
 }
 
 # 18. Jaman (Accounts/normal verified user) can ask fleet info
-$jamanQueryRes = Assert-Step "18. Query Where is Sagar Tug 1? as Accounts (Jaman)" {
+$jamanQueryRes = Assert-Step "18. Query Where is ARCADIA 1? as Accounts (Jaman)" {
     $body = @{
         fromPhone = "915555555555"
-        message = "Where is Sagar Tug 1?"
+        message = "Where is ARCADIA 1?"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/bot/whatsapp/test-webhook" -Method Post -ContentType "application/json" -Body $body -WebSession $script:session
     return $res
@@ -359,7 +359,7 @@ $jamanQueryRes = Assert-Step "18. Query Where is Sagar Tug 1? as Accounts (Jaman
 Assert-Step "18b. Verify Jaman response" {
     if ($jamanQueryRes.status -ne "success") { throw "Expected status 'success', got: $($jamanQueryRes.status)" }
     Write-Host "  Jaman Response Info:`n$($jamanQueryRes.message)" -ForegroundColor Gray
-    if ($jamanQueryRes.message -notmatch "Sagar Tug 1") { throw "Vessel info response missing vessel name" }
+    if ($jamanQueryRes.message -notmatch "ARCADIA 1") { throw "Vessel info response missing vessel name" }
 }
 
 Write-Host "`nAll WhatsApp Task Replies and Fleet queries verification steps completed successfully!" -ForegroundColor Green

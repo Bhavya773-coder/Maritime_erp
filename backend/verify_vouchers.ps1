@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $baseUrl = "http://localhost:5000/api"
 
 Write-Host "=====================================================" -ForegroundColor Cyan
-Write-Host "Sagar Shipping Maritime ERP - Vouchers API Verification" -ForegroundColor Cyan
+Write-Host "Arvind Port & Infra Limited - Vouchers API Verification" -ForegroundColor Cyan
 Write-Host "=====================================================" -ForegroundColor Cyan
 
 function Assert-Step($stepName, $scriptBlock) {
@@ -39,7 +39,7 @@ function Get-ExceptionBody($exception) {
 $script:ownerSession = $null
 Assert-Step "1. Login as Owner" {
     $loginBody = @{
-        email = "owner@sagarshipping.local"
+        email = "owner@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:ownerSession
@@ -51,7 +51,7 @@ Assert-Step "1. Login as Owner" {
 $script:accountsSession = $null
 Assert-Step "2. Login as Accounts" {
     $loginBody = @{
-        email = "jaman@sagarshipping.local"
+        email = "jaman@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:accountsSession
@@ -63,7 +63,7 @@ Assert-Step "2. Login as Accounts" {
 $script:staffSession = $null
 Assert-Step "3. Login as Staff" {
     $loginBody = @{
-        email = "parag@sagarshipping.local"
+        email = "parag@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:staffSession

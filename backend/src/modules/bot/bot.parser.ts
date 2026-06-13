@@ -54,21 +54,22 @@ export class BotParser {
     taskTitle = taskTitle.charAt(0).toUpperCase() + taskTitle.slice(1);
 
     // Extract assetReference
-    // Look for KB-26, KB-24, Sagar Barge 1, Sagar Barge 2, Sagar Tug 1, etc.
+    // Look for KB-26, KB-24, Arcadia Varun, Zarah 1, etc.
     let assetReference: string | null = null;
-    const assetMatch = trimmedMessage.match(/(KB-\d+|Sagar\s+Barge\s+\d+|Sagar\s+Tug\s+\d+)/i);
+    const assetMatch = trimmedMessage.match(/(KB[- ]?\d+|Arcadia[- ]?[a-zA-Z0-9]+|Zarah[- ]?\d+)/i);
     if (assetMatch) {
-      // Standardize casing for Sagar Barge X / Sagar Tug X
       let rawAsset = assetMatch[1];
-      if (/sagar\s+barge\s+\d+/i.test(rawAsset)) {
+      if (/kb[- ]?\d+/i.test(rawAsset)) {
         const num = rawAsset.match(/\d+/);
-        rawAsset = `Sagar Barge ${num ? num[0] : ''}`;
-      } else if (/sagar\s+tug\s+\d+/i.test(rawAsset)) {
+        rawAsset = `KB ${num ? num[0] : ''}`;
+      } else if (/zarah[- ]?\d+/i.test(rawAsset)) {
         const num = rawAsset.match(/\d+/);
-        rawAsset = `Sagar Tug ${num ? num[0] : ''}`;
+        rawAsset = `Zarah ${num ? num[0] : ''}`;
+      } else if (/arcadia[- ]?\d+/i.test(rawAsset)) {
+        const num = rawAsset.match(/\d+/);
+        rawAsset = `Arcadia ${num ? num[0] : ''}`;
       } else {
-        // Upper case KB-XX
-        rawAsset = rawAsset.toUpperCase();
+        rawAsset = rawAsset.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
       }
       assetReference = rawAsset;
     }

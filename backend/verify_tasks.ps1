@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $baseUrl = "http://localhost:5000/api"
 
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host "Sagar Shipping Maritime ERP - Task API Test" -ForegroundColor Cyan
+Write-Host "Arvind Port & Infra Limited - Task API Test" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 
 # Helper function to print results and assert step status
@@ -27,7 +27,7 @@ function Assert-Step($stepName, $scriptBlock) {
 $script:session = $null
 $loginRes = Assert-Step "1. Login" {
     $loginBody = @{
-        email = "owner@sagarshipping.local"
+        email = "owner@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $loginBody -SessionVariable script:session
@@ -37,7 +37,7 @@ $loginRes = Assert-Step "1. Login" {
 # Get User IDs
 Assert-Step "Prep. Get Ramesh Mota ID" {
     $rameshBody = @{
-        email = "ramesh@sagarshipping.local"
+        email = "ramesh@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $rameshLogin = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $rameshBody -SessionVariable script:rameshSession
@@ -47,7 +47,7 @@ Assert-Step "Prep. Get Ramesh Mota ID" {
 
 Assert-Step "Prep. Get Jaman Fadadu ID" {
     $jamanBody = @{
-        email = "jaman@sagarshipping.local"
+        email = "jaman@apil.local"
         password = "Password@123"
     } | ConvertTo-Json
     $jamanLogin = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method Post -ContentType "application/json" -Body $jamanBody -SessionVariable script:jamanSession
@@ -58,7 +58,7 @@ Assert-Step "Prep. Get Jaman Fadadu ID" {
 # 2. Create Assigned Task
 $assignedTask = Assert-Step "2. Create Assigned Task" {
     $assignedTaskBody = @{
-        title = "Inspect Vessel Sagar Barge 1"
+        title = "Inspect Vessel KB 26"
         description = "Perform standard GMB registration safety inspection."
         taskType = "ASSIGNED"
         assignedToId = $script:rameshId
