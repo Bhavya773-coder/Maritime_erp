@@ -209,7 +209,7 @@ export class BotService {
       senderText = `Task created and sent to ${assignee.name}. Task: ${task.title}`;
       
       const assigneeContact = await prisma.userContact.findFirst({
-        where: { userId: assignee.id, channel: BotChannel.WHATSAPP, isVerified: true }
+        where: { userId: assignee.id, channel: BotChannel.WHATSAPP }
       });
       if (assigneeContact) {
         toPhoneAssignee = assigneeContact.phoneNumber;

@@ -2,6 +2,7 @@ import prisma from '../../config/db';
 import { User, Role, BotChannel } from '@prisma/client';
 import { ReplyCommand } from './bot.reply-parser';
 import { WhatsAppService } from './whatsapp.service';
+import { BotService } from './bot.service';
 
 export class BotReplyService {
   public static async executeReplyCommand(
@@ -141,7 +142,6 @@ export class BotReplyService {
         where: {
           userId: updatedTask.createdById,
           channel: BotChannel.WHATSAPP,
-          isVerified: true,
         },
       });
 
@@ -202,7 +202,6 @@ export class BotReplyService {
         where: {
           userId: updatedTask.createdById,
           channel: BotChannel.WHATSAPP,
-          isVerified: true,
         },
       });
 
@@ -216,6 +215,91 @@ export class BotReplyService {
         data: {
           task: updatedTask,
           notifications: creatorMsg ? [senderMsg, creatorMsg] : [senderMsg],
+        },
+      };
+    }
+
+    if (command.type === 'DELEGATE') {
+      if (!command.assigneeName) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, 'Please specify an assignee to delegate to.');
+        return { status: 'error', message: 'Please specify an assignee to delegate to.' };
+      }
+
+      const candidates = await BotService.resolveAssignee(command.assigneeName);
+      if (candidates.length === 0) {
+        const replyText = `Could not resolve assignee "${command.assigneeName}".`;
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, replyText);
+        return { status: 'error', message: replyText };
+      }
+      if (candidates.length > 1) {
+        let replyText = `Multiple matches found for "${command.assigneeName}":\n`;
+        candidates.forEach((c, i) => {
+          replyText += `${i + 1}. ${c.name} (${c.department})\n`;
+        });
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, replyText);
+        return { status: 'NEEDS_CONFIRMATION', message: replyText, options: candidates };
+      }
+
+      const assignee = candidates[0];
+
+      // Update task assignee and status to DELEGATED
+      const updatedTask = await prisma.task.update({
+        where: { id: task.id },
+        data: {
+          assignedToId: assignee.id,
+          status: 'DELEGATED',
+        },
+        include: {
+          creator: true,
+        },
+      });
+
+      // Update reminder to new assignee
+      await prisma.botReminder.updateMany({
+        where: { taskId: task.id, status: 'ACTIVE' },
+        data: { assignedToId: assignee.id },
+      });
+
+      const note = command.message || 'Delegated via WhatsApp';
+
+      // Create task delegation log
+      await prisma.taskDelegationLog.create({
+        data: {
+          taskId: task.id,
+          fromUserId: sender.id,
+          toUserId: assignee.id,
+          note,
+        },
+      });
+
+      // Audit Log
+      await prisma.auditLog.create({
+        data: {
+          userId: sender.id,
+          action: 'BOT_TASK_DELEGATED',
+          details: `Task "${task.title}" delegated to ${assignee.name} by ${sender.name}.`,
+        },
+      });
+
+      // Send confirmation to sender
+      const confirmationText = `Task delegated to ${assignee.name}: ${task.title}`;
+      const senderMsg = await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, confirmationText);
+
+      // Notify new assignee
+      let assigneeMsg: any = null;
+      const assigneeContact = await prisma.userContact.findFirst({
+        where: { userId: assignee.id, channel: BotChannel.WHATSAPP },
+      });
+      if (assigneeContact) {
+        const assigneeText = `New task delegated to you by ${sender.name}: ${task.title}. Note: ${note}`;
+        assigneeMsg = await WhatsAppService.sendWhatsAppAndLog(assignee.id, assigneeContact.phoneNumber, assigneeText);
+      }
+
+      return {
+        status: 'success',
+        data: {
+          task: updatedTask,
+          notifications: assigneeMsg ? [senderMsg, assigneeMsg] : [senderMsg],
         },
       };
     }

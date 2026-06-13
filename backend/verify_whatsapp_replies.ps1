@@ -55,7 +55,7 @@ Assert-Step "3. Get Gunvant ID" {
 
 # Cleanup Hardik Kateshiya and Gunvant's active tasks and bot commands to ensure a clean state
 Assert-Step "3b. Cleanup active tasks for Hardik Kateshiya and Gunvant" {
-    $cleanupScript = @"
+    $cleanupScript = @'
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 async function run() {
@@ -82,8 +82,8 @@ async function run() {
     });
   }
 }
-run().catch(console.error).finally(() => prisma.\$disconnect());
-"@
+run().catch(console.error).finally(() => prisma.$disconnect());
+'@
     $cleanupScript | Out-File -FilePath "cleanup_tasks.js" -Encoding utf8
     node cleanup_tasks.js
     Remove-Item "cleanup_tasks.js"
@@ -190,8 +190,8 @@ $helpRes = Assert-Step "10. Send HELP from Hardik" {
 Assert-Step "10b. Verify HELP results" {
     if ($helpRes.status -ne "success") { throw "Expected status 'success', got: $($helpRes.status)" }
     Write-Host "  Help text: $($helpRes.message)" -ForegroundColor Gray
-    if ($helpRes.message -notmatch "Reply commands:") {
-        throw "Expected help message to contain 'Reply commands:', got: $($helpRes.message)"
+    if ($helpRes.message -notmatch "Commands:") {
+        throw "Expected help message to contain 'Commands:', got: $($helpRes.message)"
     }
 }
 
@@ -258,7 +258,7 @@ Assert-Step "13b. Verify delegation results" {
 
 # 14. Force reminder to be due in the database
 Assert-Step "14. Force reminder to be due in database" {
-    $forceScript = @"
+    $forceScript = @'
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 prisma.botReminder.updateMany({
@@ -270,8 +270,8 @@ prisma.botReminder.updateMany({
 }).catch((err) => {
   console.error(err);
   process.exit(1);
-}).finally(() => prisma.\$disconnect());
-"@
+}).finally(() => prisma.$disconnect());
+'@
     $forceScript | Out-File -FilePath "force_reminder_due.js" -Encoding utf8
     node force_reminder_due.js
     Remove-Item "force_reminder_due.js"
@@ -295,17 +295,17 @@ Assert-Step "15b. Verify reminder counts" {
 $unregRes = Assert-Step "16. Send reply from unregistered phone" {
     $body = @{
         fromPhone = "911111111111"
-        message = "DONE"
+        message = "HELP"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/bot/whatsapp/test-webhook" -Method Post -ContentType "application/json" -Body $body -WebSession $script:session
     return $res
 }
 
 Assert-Step "16b. Verify unregistered phone response" {
-    if ($unregRes.status -ne "unregistered") { throw "Expected status 'unregistered', got: $($unregRes.status)" }
+    if ($unregRes.status -ne "success") { throw "Expected status 'success', got: $($unregRes.status)" }
     Write-Host "  Unregistered phone response message: $($unregRes.message)" -ForegroundColor Gray
-    if ($unregRes.message -ne "Your number is not registered in Sagar ERP.") {
-        throw "Incorrect unregistered message: $($unregRes.message)"
+    if ($unregRes.message -notmatch "Commands:") {
+        throw "Expected help message, got: $($unregRes.message)"
     }
 }
 

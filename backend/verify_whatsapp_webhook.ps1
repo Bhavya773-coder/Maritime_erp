@@ -1,6 +1,22 @@
 $ErrorActionPreference = "Stop"
 $baseUrl = "http://localhost:5000/api"
 
+# Read WHATSAPP_VERIFY_TOKEN from .env if it exists
+$verifyToken = "test_verify_token"
+if (Test-Path ".env") {
+    $envContent = Get-Content ".env"
+    foreach ($line in $envContent) {
+        if ($line -match "^WHATSAPP_VERIFY_TOKEN\s*=\s*`"(.*)`"") {
+            $verifyToken = $Matches[1]
+            break
+        } elseif ($line -match "^WHATSAPP_VERIFY_TOKEN\s*=\s*(.*)") {
+            $verifyToken = $Matches[1]
+            break
+        }
+    }
+}
+Write-Host "Using verify token: $verifyToken" -ForegroundColor Gray
+
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host "Sagar Shipping Maritime ERP - WhatsApp Webhook API Test" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
@@ -68,7 +84,7 @@ Assert-Step "4. Create UserContact for Hardik Kateshiya" {
 
 # 5. GET Webhook verification with correct verify token returns challenge
 Assert-Step "5. GET Webhook verification with correct verify token" {
-    $res = Invoke-WebRequest -Uri "$baseUrl/bot/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=test_verify_token&hub.challenge=123456" -Method Get -UseBasicParsing
+    $res = Invoke-WebRequest -Uri "$baseUrl/bot/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=$verifyToken&hub.challenge=123456" -Method Get -UseBasicParsing
     Write-Host "  Response content: $($res.Content)" -ForegroundColor Gray
     if ($res.Content -ne "123456") { throw "Expected challenge '123456', got '$($res.Content)'" }
 }
@@ -112,7 +128,7 @@ Assert-Step "7b. Verify test-webhook results" {
     if ($notifications.Count -ne 2) { throw "Expected 2 notification records, got: $($notifications.Count)" }
 }
 
-# 8. POST test-webhook with unregistered phone (Safe reply)
+# 8. POST test-webhook with unregistered phone (Succeeds via owner fallback)
 $unregRes = Assert-Step "8. POST test-webhook with unregistered phone" {
     $body = @{
         fromPhone = "911111111111"
@@ -123,9 +139,10 @@ $unregRes = Assert-Step "8. POST test-webhook with unregistered phone" {
 }
 
 Assert-Step "8b. Verify unregistered test-webhook results" {
-    if ($unregRes.status -ne "unregistered") { throw "Expected status 'unregistered', got: $($unregRes.status)" }
-    Write-Host "  Message reply: $($unregRes.message)" -ForegroundColor Gray
-    if ($unregRes.message -ne "Your number is not registered in Sagar ERP.") { throw "Incorrect unregistered message reply: $($unregRes.message)" }
+    if ($unregRes.status -ne "success") { throw "Expected status 'success', got: $($unregRes.status)" }
+    $task = $unregRes.data.task
+    Write-Host "  Created Task ID for unregistered sender: $($task.id)" -ForegroundColor Gray
+    if ($task.title -notmatch "Check the repairing") { throw "Incorrect task title: $($task.title)" }
 }
 
 # 9. POST real-shaped WhatsApp payload to /api/bot/whatsapp/webhook

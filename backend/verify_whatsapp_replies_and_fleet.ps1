@@ -332,17 +332,17 @@ Assert-Step "16b. Verify reminder counts" {
 $unregRes = Assert-Step "17. Send reply from unregistered phone" {
     $body = @{
         fromPhone = "911111111111"
-        message = "DONE"
+        message = "HELP"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$baseUrl/bot/whatsapp/test-webhook" -Method Post -ContentType "application/json" -Body $body -WebSession $script:session
     return $res
 }
 
 Assert-Step "17b. Verify unregistered phone response" {
-    if ($unregRes.status -ne "unregistered") { throw "Expected status 'unregistered', got: $($unregRes.status)" }
+    if ($unregRes.status -ne "success") { throw "Expected status 'success', got: $($unregRes.status)" }
     Write-Host "  Unregistered phone response message: $($unregRes.message)" -ForegroundColor Gray
-    if ($unregRes.message -ne "Your number is not registered in Sagar ERP.") {
-        throw "Incorrect unregistered message: $($unregRes.message)"
+    if ($unregRes.message -notmatch "Commands:") {
+        throw "Expected help message, got: $($unregRes.message)"
     }
 }
 

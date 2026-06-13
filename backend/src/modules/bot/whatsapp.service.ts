@@ -131,59 +131,26 @@ export class WhatsAppService {
   ): Promise<any> {
     const cleanPhone = this.normalizePhone(fromPhone);
 
-    // Find verified contact mapping
+    // Find contact mapping
     const contact = await prisma.userContact.findFirst({
       where: {
         phoneNumber: cleanPhone,
         channel: BotChannel.WHATSAPP,
-        isVerified: true,
       },
       include: {
         user: true,
       },
     });
+    const owner = await prisma.user.findFirst({
+      where: { email: 'owner@sagarshipping.local' },
+    });
 
-    if (!contact) {
-      // 1. Log incoming BotMessage
-      const incoming = await prisma.botMessage.create({
-        data: {
-          direction: 'INCOMING',
-          channel: BotChannel.WHATSAPP,
-          fromPhone: cleanPhone,
-          rawText: textBody,
-          messageType: 'TEXT',
-          status: 'RECEIVED',
-          providerMessageId,
-        },
-      });
-
-      // 2. Create unregistered response text
-      const replyText = 'Your number is not registered in Sagar ERP.';
-      
-      // 3. Send WhatsApp message
-      await this.sendWhatsAppText(cleanPhone, replyText);
-
-      // 4. Log outgoing BotMessage
-      const outgoing = await prisma.botMessage.create({
-        data: {
-          direction: 'OUTGOING',
-          channel: BotChannel.WHATSAPP,
-          toPhone: cleanPhone,
-          rawText: replyText,
-          messageType: 'TEXT',
-          status: 'SENT',
-        },
-      });
-
-      return {
-        status: 'unregistered',
-        message: replyText,
-        incoming,
-        outgoing: [outgoing],
-      };
-    }
-
-    const senderUser = contact.user;
+    const senderUser = contact
+      ? contact.user
+      : {
+          ...owner!,
+          name: `Unregistered (${cleanPhone})`,
+        };
 
     // Check if it is a reply command
     const replyCommand = BotReplyParser.parse(textBody);

@@ -48,7 +48,6 @@ export class BotReminderService {
         where: {
           userId: reminder.assignedToId,
           channel: BotChannel.WHATSAPP,
-          isVerified: true,
         },
       });
 

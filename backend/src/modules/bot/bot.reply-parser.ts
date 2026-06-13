@@ -1,7 +1,8 @@
 export interface ReplyCommand {
-  type: 'DONE' | 'UPDATE' | 'STATUS' | 'HELP';
+  type: 'DONE' | 'UPDATE' | 'STATUS' | 'HELP' | 'DELEGATE';
   targetTaskId?: string;
-  message?: string; // For UPDATE
+  message?: string; // For UPDATE/DELEGATE
+  assigneeName?: string; // For DELEGATE
 }
 
 export class BotReplyParser {
@@ -35,6 +36,17 @@ export class BotReplyParser {
     // HELP
     if (/^help\b/i.test(cleanedText)) {
       return { type: 'HELP', targetTaskId };
+    }
+
+    // DELEGATE: Assignee - Message
+    const delegateMatch = cleanedText.match(/^delegate\b\s*:\s*([^-]+)(?:\s*-\s*([\s\S]+))?/i);
+    if (delegateMatch) {
+      return {
+        type: 'DELEGATE',
+        targetTaskId,
+        assigneeName: delegateMatch[1].trim(),
+        message: delegateMatch[2] ? delegateMatch[2].trim() : undefined,
+      };
     }
 
     // UPDATE: message
