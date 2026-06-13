@@ -161,6 +161,13 @@ model Vessel {
   latitude        Decimal?                @db.Decimal(9, 6)
   longitude       Decimal?                @db.Decimal(9, 6)
   status          VesselStatus
+  classification  String?                 @db.VarChar(150)
+  buildYear       Int?                    @map("build_year")
+  length          Decimal?                @db.Decimal(6, 2)
+  breadth         Decimal?                @db.Decimal(6, 2)
+  depth           Decimal?                @db.Decimal(6, 2)
+  irsIv           String?                 @map("irs_iv") @db.VarChar(50)
+  remark          String?                 @db.Text
   updatedById     String?                 @map("updated_by_id") @db.Uuid
   updatedBy       User?                   @relation("VesselUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
   updatedAt       DateTime                @updatedAt @map("updated_at")
