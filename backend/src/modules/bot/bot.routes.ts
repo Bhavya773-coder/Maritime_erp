@@ -7,10 +7,15 @@ import {
   getMessages,
   getReminders,
   pauseReminder,
+  processDueReminders,
 } from './bot.controller';
 import { testCommandSchema } from './bot.schema';
+import whatsappRoutes from './whatsapp.routes';
 
 const router = Router();
+
+// Mount WhatsApp webhook and contacts subroutes (public/protected segregation handled internally)
+router.use(whatsappRoutes);
 
 // Middleware to validate UUID reminder ID params
 const validateReminderId = (req: Request, res: Response, next: NextFunction) => {
@@ -26,12 +31,13 @@ const validateReminderId = (req: Request, res: Response, next: NextFunction) => 
   next();
 };
 
-// Require authentication for all bot routes
+// Require authentication for all other bot routes
 router.use(requireAuth);
 
 router.post('/test-command', validate(testCommandSchema), testCommand);
 router.get('/messages', requireRole([Role.OWNER]), getMessages);
 router.get('/reminders', requireRole([Role.OWNER, Role.MANAGER]), getReminders);
 router.patch('/reminders/:id/pause', validateReminderId, requireRole([Role.OWNER, Role.MANAGER]), pauseReminder);
+router.post('/reminders/process-due', requireRole([Role.OWNER]), processDueReminders);
 
 export default router;

@@ -15,6 +15,10 @@ const envSchema = zod_1.z.object({
     CLIENT_URL: zod_1.z.string().url().default('http://localhost:5173'),
     PORT: zod_1.z.coerce.number().default(5000),
     NODE_ENV: zod_1.z.enum(['development', 'production', 'test']).default('development'),
+    WHATSAPP_VERIFY_TOKEN: zod_1.z.string().optional(),
+    WHATSAPP_ACCESS_TOKEN: zod_1.z.string().optional(),
+    WHATSAPP_PHONE_NUMBER_ID: zod_1.z.string().optional(),
+    WHATSAPP_API_VERSION: zod_1.z.string().default('v20.0'),
 });
 const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {

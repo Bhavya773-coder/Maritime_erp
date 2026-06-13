@@ -9,17 +9,28 @@ export class BotService {
    */
   public static async processCommand(
     messageText: string,
-    sender: { id: string; role: Role; name: string }
+    sender: { id: string; role: Role; name: string },
+    options?: {
+      channel?: BotChannel;
+      fromPhone?: string;
+      providerMessageId?: string;
+    }
   ) {
+    const channel = options?.channel || BotChannel.INTERNAL_TEST;
+    const fromPhone = options?.fromPhone || null;
+    const providerMessageId = options?.providerMessageId || null;
+
     // 1. Store incoming BotMessage
     const incomingMessage = await prisma.botMessage.create({
       data: {
         direction: 'INCOMING',
-        channel: 'INTERNAL_TEST',
+        channel,
         fromUserId: sender.id,
+        fromPhone,
         rawText: messageText,
         messageType: 'TEXT',
         status: 'RECEIVED',
+        providerMessageId,
       },
     });
 
@@ -55,33 +66,7 @@ export class BotService {
       };
     }
 
-    const activeUsers = await prisma.user.findMany({
-      where: { isActive: true },
-    });
-
-    const queryLower = parsed.assigneeName.toLowerCase();
-    
-    // Check if matching department
-    const matchesDept = (deptName: string) => {
-      const d = deptName.toLowerCase();
-      return d === queryLower || d + 's' === queryLower || queryLower + 's' === d;
-    };
-
-    let candidates = activeUsers.filter(u => u.department && matchesDept(u.department));
-
-    // If no department matched, match by name tokens
-    if (candidates.length === 0) {
-      const queryTokens = queryLower.split(/\s+/).filter(Boolean);
-      candidates = activeUsers.filter(user => {
-        const userLower = user.name.toLowerCase();
-        const userTokens = userLower.split(/\s+/).filter(Boolean);
-        
-        // All query tokens must prefix-match some token in the user's name
-        return queryTokens.every(qToken => 
-          userTokens.some(uToken => uToken.startsWith(qToken))
-        );
-      });
-    }
+    const candidates = await BotService.resolveAssignee(parsed.assigneeName);
 
     // 4. Resolve flow outcomes
     // Case A: No matches
@@ -213,12 +198,31 @@ export class BotService {
     });
 
     // Create outgoing bot messages
+    let assigneeText = `New task assigned to you: "${task.title}". Priority: ${task.priority}. Due: ${task.dueDate.toISOString()}.`;
+    let senderText = `Task created: "${task.title}" has been assigned to ${assignee.name}.`;
+
+    let toPhoneAssignee: string | null = null;
+    let toPhoneSender: string | null = fromPhone;
+
+    if (channel === BotChannel.WHATSAPP) {
+      assigneeText = `New task from ${sender.name}: ${task.title}. Reply UPDATE, DONE, or DELEGATE.`;
+      senderText = `Task created and sent to ${assignee.name}. Task: ${task.title}`;
+      
+      const assigneeContact = await prisma.userContact.findFirst({
+        where: { userId: assignee.id, channel: BotChannel.WHATSAPP, isVerified: true }
+      });
+      if (assigneeContact) {
+        toPhoneAssignee = assigneeContact.phoneNumber;
+      }
+    }
+
     const assigneeMsg = await prisma.botMessage.create({
       data: {
         direction: 'OUTGOING',
-        channel: 'INTERNAL_TEST',
+        channel,
         toUserId: assignee.id,
-        rawText: `New task assigned to you: "${task.title}". Priority: ${task.priority}. Due: ${task.dueDate.toISOString()}.`,
+        toPhone: toPhoneAssignee,
+        rawText: assigneeText,
         messageType: 'TEXT',
         status: 'SENT',
       },
@@ -227,9 +231,10 @@ export class BotService {
     const senderMsg = await prisma.botMessage.create({
       data: {
         direction: 'OUTGOING',
-        channel: 'INTERNAL_TEST',
+        channel,
         toUserId: sender.id,
-        rawText: `Task created: "${task.title}" has been assigned to ${assignee.name}.`,
+        toPhone: toPhoneSender,
+        rawText: senderText,
         messageType: 'TEXT',
         status: 'SENT',
       },
@@ -291,5 +296,40 @@ export class BotService {
         assignedTo: { select: { id: true, name: true } },
       },
     });
+  }
+
+  /**
+   * Resolve assignee candidates by name/department
+   */
+  public static async resolveAssignee(assigneeName: string) {
+    const activeUsers = await prisma.user.findMany({
+      where: { isActive: true },
+    });
+
+    const queryLower = assigneeName.toLowerCase().trim();
+    
+    // Check if matching department
+    const matchesDept = (deptName: string) => {
+      const d = deptName.toLowerCase();
+      return d === queryLower || d + 's' === queryLower || queryLower + 's' === d;
+    };
+
+    let candidates = activeUsers.filter(u => u.department && matchesDept(u.department));
+
+    // If no department matched, match by name tokens
+    if (candidates.length === 0) {
+      const queryTokens = queryLower.split(/\s+/).filter(Boolean);
+      candidates = activeUsers.filter(user => {
+        const userLower = user.name.toLowerCase();
+        const userTokens = userLower.split(/\s+/).filter(Boolean);
+        
+        // All query tokens must prefix-match some token in the user's name
+        return queryTokens.every(qToken => 
+          userTokens.some(uToken => uToken.startsWith(qToken))
+        );
+      });
+    }
+
+    return candidates;
   }
 }
