@@ -33,17 +33,29 @@ export class BotFleetService {
         return `Vessel "${name}" not found in our fleet database.`;
       }
 
-      // Format response:
-      // “ARCADIA 1
-      // Status: IN_PORT
-      // Location: Jamnagar Port
-      // Coordinates: 22.47, 70.05
-      // Last updated: [date]”
-      const lat = targetVessel.latitude ? Number(targetVessel.latitude).toFixed(4) : 'N/A';
-      const lng = targetVessel.longitude ? Number(targetVessel.longitude).toFixed(4) : 'N/A';
-      const dateStr = targetVessel.updatedAt.toISOString();
+      // Format response exactly matching the columns from Excel
+      const classification = targetVessel.classification || 'N/A';
+      const regNo = targetVessel.registrationNo || 'N/A';
+      const buildYear = targetVessel.buildYear || 'N/A';
+      const length = targetVessel.length ? Number(targetVessel.length).toString() : 'N/A';
+      const breadth = targetVessel.breadth ? Number(targetVessel.breadth).toString() : 'N/A';
+      const depth = targetVessel.depth ? Number(targetVessel.depth).toString() : 'N/A';
+      const irsIv = targetVessel.irsIv || 'N/A';
+      const location = targetVessel.currentLocation || 'N/A';
+      const remark = targetVessel.remark || 'N/A';
 
-      return `${targetVessel.name}\nStatus: ${targetVessel.status}\nLocation: ${targetVessel.currentLocation}\nCoordinates: ${lat}, ${lng}\nLast updated: ${dateStr}`;
+      const nameLabel = targetVessel.type === VesselType.TUG ? 'NAME OF TUGS' : 'NAME OF BARGES';
+
+      return `CLASSIFICATION: ${classification}
+${nameLabel}: ${targetVessel.name}
+REGI NO: ${regNo}
+BULID YEAR: ${buildYear}
+LENGTH: ${length}
+BREDTH: ${breadth}
+DEPTH: ${depth}
+IRS / IV: ${irsIv}
+PRESNT LOCATION: ${location}
+REMARK: ${remark}`;
     }
 
     if (query.type === 'LIST_BARGES') {
@@ -95,9 +107,29 @@ export class BotFleetService {
     }
     let response = `${title}:\n`;
     vessels.forEach((v, index) => {
-      const lat = v.latitude ? Number(v.latitude).toFixed(4) : 'N/A';
-      const lng = v.longitude ? Number(v.longitude).toFixed(4) : 'N/A';
-      response += `\n${index + 1}. ${v.name}\n   Reg No: ${v.registrationNo}\n   Status: ${v.status}\n   Location: ${v.currentLocation}\n   Coords: ${lat}, ${lng}\n`;
+      const classification = v.classification || 'N/A';
+      const regNo = v.registrationNo || 'N/A';
+      const buildYear = v.buildYear || 'N/A';
+      const length = v.length ? Number(v.length).toString() : 'N/A';
+      const breadth = v.breadth ? Number(v.breadth).toString() : 'N/A';
+      const depth = v.depth ? Number(v.depth).toString() : 'N/A';
+      const irsIv = v.irsIv || 'N/A';
+      const location = v.currentLocation || 'N/A';
+      const remark = v.remark || 'N/A';
+
+      const nameLabel = v.type === VesselType.TUG ? 'NAME OF TUGS' : 'NAME OF BARGES';
+
+      response += `\nSR. NO.: ${index + 1}
+CLASSIFICATION: ${classification}
+${nameLabel}: ${v.name}
+REGI NO: ${regNo}
+BULID YEAR: ${buildYear}
+LENGTH: ${length}
+BREDTH: ${breadth}
+DEPTH: ${depth}
+IRS / IV: ${irsIv}
+PRESNT LOCATION: ${location}
+REMARK: ${remark}\n`;
     });
     return response.trim();
   }

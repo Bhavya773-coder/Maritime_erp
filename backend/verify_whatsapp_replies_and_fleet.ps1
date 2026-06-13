@@ -232,7 +232,7 @@ Assert-Step "11b. Verify vessel status response" {
     if ($vesselRes.status -ne "success") { throw "Expected status 'success', got: $($vesselRes.status)" }
     Write-Host "  Vessel Info text:`n$($vesselRes.message)" -ForegroundColor Gray
     if ($vesselRes.message -notmatch "ARCADIA 1") { throw "Vessel info response missing vessel name" }
-    if ($vesselRes.message -notmatch "Location:") { throw "Vessel info response missing location details" }
+    if ($vesselRes.message -notmatch "PRESNT LOCATION:") { throw "Vessel info response missing location details" }
 }
 
 # 12. Send "Show all barges" from verified phone
