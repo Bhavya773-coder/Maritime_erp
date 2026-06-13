@@ -4,7 +4,7 @@
   "description": "Backend API for Arvind Port and Infra Limited Maritime ERP",
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "start": "node dist/server.js",
     "dev": "nodemon src/server.ts",
     "prisma:generate": "prisma generate",
