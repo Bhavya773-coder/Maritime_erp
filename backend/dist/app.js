@@ -18,6 +18,8 @@ const certs_routes_1 = __importDefault(require("./modules/certifications/certs.r
 const vouchers_routes_1 = __importDefault(require("./modules/vouchers/vouchers.routes"));
 const bot_routes_1 = __importDefault(require("./modules/bot/bot.routes"));
 const app = (0, express_1.default)();
+// Trust proxy for rate limiting (Render deployment)
+app.set('trust proxy', 1);
 // Set security HTTP headers
 app.use((0, helmet_1.default)());
 // Enable CORS with credentials
@@ -50,6 +52,15 @@ app.get('/api/health', (req, res) => {
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
     });
+});
+// Privacy Policy and Terms of Service (Required for Meta App verification)
+app.get('/privacy', (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.send('<html><body><h1>Privacy Policy</h1><p>This application collects user contacts and tasks strictly for internal operational management at Arvind Port & Infra Limited. We do not share, sell, or distribute any user data to third parties.</p></body></html>');
+});
+app.get('/terms', (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.send('<html><body><h1>Terms of Service</h1><p>These terms govern the use of the Arvind Port & Infra Limited Maritime ERP bot. This system is restricted for use by authorized staff and administrators only.</p></body></html>');
 });
 // Register Module Routes
 app.use('/api/auth', auth_routes_1.default);

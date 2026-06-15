@@ -1,8 +1,9 @@
 import prisma from '../../config/db';
 import { env } from '../../config/env';
 import { BotService } from './bot.service';
-import { BotChannel } from '@prisma/client';
+import { BotChannel, Role } from '@prisma/client';
 import { BotReplyParser } from './bot.reply-parser';
+import { BotStaffService } from './bot.staff-service';
 import { BotReplyService } from './bot.reply-service';
 import { BotFleetParser } from './bot.fleet-parser';
 import { BotFleetService } from './bot.fleet-service';
@@ -310,6 +311,85 @@ export class WhatsAppService {
       return {
         status: 'success',
         message: bodyText,
+        outgoing: [outgoing],
+      };
+    }
+
+    // Check if it is an ADD STAFF command
+    const addStaffMatch = textBody.trim().match(/^add\s+staff\s+(.+?)\s+(\+?\d[\d\s-]+)\s+(.+)$/i);
+    if (addStaffMatch) {
+      // 1. Log incoming BotMessage
+      await prisma.botMessage.create({
+        data: {
+          direction: 'INCOMING',
+          channel: BotChannel.WHATSAPP,
+          fromUserId: senderUser.id,
+          fromPhone: cleanPhone,
+          rawText: textBody,
+          messageType: 'TEXT',
+          status: 'RECEIVED',
+          providerMessageId,
+        },
+      });
+
+      // 2. Authorization check: must be registered, verified OWNER
+      if (!contact || !contact.isVerified || contact.user.role !== Role.OWNER) {
+        const replyText = 'Error: Unauthorized. Only registered and verified Owners can add staff.';
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        return {
+          status: 'failed',
+          message: replyText,
+          outgoing: [outgoing],
+        };
+      }
+
+      // 3. Process
+      const name = addStaffMatch[1].trim();
+      const phone = addStaffMatch[2].trim();
+      const position = addStaffMatch[3].trim();
+      const replyText = await BotStaffService.addStaff(senderUser.id, name, phone, position);
+      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+      return {
+        status: 'success',
+        message: replyText,
+        outgoing: [outgoing],
+      };
+    }
+
+    // Check if it is a STAFF LIST command
+    const isStaffListQuery = /^(?:staff\s+list|list\s+staff|show\s+all\s+staff|show\s+staff|how\s+many\s+members(?:\s+do\s+(?:i|we)\s+have)?)$/i.test(cleanMsg);
+    if (isStaffListQuery) {
+      // 1. Log incoming BotMessage
+      await prisma.botMessage.create({
+        data: {
+          direction: 'INCOMING',
+          channel: BotChannel.WHATSAPP,
+          fromUserId: senderUser.id,
+          fromPhone: cleanPhone,
+          rawText: textBody,
+          messageType: 'TEXT',
+          status: 'RECEIVED',
+          providerMessageId,
+        },
+      });
+
+      // 2. Authorization check: must be registered, verified OWNER or MANAGER
+      if (!contact || !contact.isVerified || (contact.user.role !== Role.OWNER && contact.user.role !== Role.MANAGER)) {
+        const replyText = 'Error: Unauthorized. Only registered and verified Owners or Managers can view the staff list.';
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        return {
+          status: 'failed',
+          message: replyText,
+          outgoing: [outgoing],
+        };
+      }
+
+      // 3. Process
+      const replyText = await BotStaffService.listStaff();
+      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+      return {
+        status: 'success',
+        message: replyText,
         outgoing: [outgoing],
       };
     }
