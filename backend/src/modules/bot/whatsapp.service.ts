@@ -89,7 +89,67 @@ export class WhatsAppService {
   }
 
   /**
-   * Send WhatsApp text message and log as outgoing BotMessage
+   * Send WhatsApp template message using Cloud API
+   */
+  public static async sendWhatsAppTemplate(
+    toPhone: string,
+    templateName: string,
+    languageCode: string,
+    parameters: string[]
+  ): Promise<any> {
+    const cleanPhone = this.normalizePhone(toPhone);
+    
+    if (!env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID) {
+      console.log(`[SIMULATED WHATSAPP TEMPLATE] To: ${cleanPhone}, Template: ${templateName}, Params: ${JSON.stringify(parameters)}`);
+      return { status: 'SIMULATED_TEMPLATE', to: cleanPhone, template: templateName, parameters };
+    }
+
+    const url = `https://graph.facebook.com/${env.WHATSAPP_API_VERSION}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.WHATSAPP_ACCESS_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: cleanPhone,
+          type: 'template',
+          template: {
+            name: templateName,
+            language: {
+              code: languageCode
+            },
+            components: [
+              {
+                type: 'body',
+                parameters: parameters.map(p => ({
+                  type: 'text',
+                  text: p
+                }))
+              }
+            ]
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[WhatsApp API Template Error] HTTP ${response.status}: ${errorText}`);
+        throw new Error(`WhatsApp API template error: ${errorText}`);
+      }
+
+      return await response.json();
+    } catch (err: any) {
+      console.error('[WhatsApp Service Template Exception]', err);
+      return { status: 'FAILED_SEND_FALLBACK_SIMULATED', error: err.message };
+    }
+  }
+
+  /**
+   * Send WhatsApp text message (or template) and log as outgoing BotMessage
    */
   public static async sendWhatsAppAndLog(
     toUserId: string | null,
@@ -98,8 +158,44 @@ export class WhatsAppService {
   ): Promise<any> {
     const cleanPhone = this.normalizePhone(toPhone);
     const isSimulated = !env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID;
-    
-    await this.sendWhatsAppText(cleanPhone, messageText);
+
+    // Check if the outgoing message is a task assignment or delegation, and if we should use templates
+    let type = 'TEXT';
+    if (env.WHATSAPP_TEMPLATE_NAME) {
+      // 1. Check if it's a direct task assignment
+      // e.g. "New task from Bhavya: Check progress of KB 26 repairing. Reply UPDATE, DONE, or DELEGATE."
+      const taskAssignMatch = messageText.match(/^New task from (.+?): (.+?)\. Reply UPDATE, DONE, or DELEGATE\.$/);
+      if (taskAssignMatch) {
+        const senderName = taskAssignMatch[1];
+        const taskTitle = taskAssignMatch[2];
+        type = 'TEMPLATE';
+        await this.sendWhatsAppTemplate(
+          cleanPhone,
+          env.WHATSAPP_TEMPLATE_NAME,
+          env.WHATSAPP_TEMPLATE_LANG || 'en',
+          [senderName, taskTitle]
+        );
+      } else {
+        // 2. Check if it's a task delegation
+        // e.g. "New task delegated to you by Hardik Kateshiya: Check progress of KB 26. Note: urgent repair needed"
+        const taskDelegateMatch = messageText.match(/^New task delegated to you by (.+?): (.+?)\. Note: (.+)$/);
+        if (taskDelegateMatch) {
+          const senderName = `${taskDelegateMatch[1]} (Delegated)`;
+          const taskTitle = `${taskDelegateMatch[2]} (Note: ${taskDelegateMatch[3]})`;
+          type = 'TEMPLATE';
+          await this.sendWhatsAppTemplate(
+            cleanPhone,
+            env.WHATSAPP_TEMPLATE_NAME,
+            env.WHATSAPP_TEMPLATE_LANG || 'en',
+            [senderName, taskTitle]
+          );
+        } else {
+          await this.sendWhatsAppText(cleanPhone, messageText);
+        }
+      }
+    } else {
+      await this.sendWhatsAppText(cleanPhone, messageText);
+    }
     
     const status = isSimulated ? 'SIMULATED' : 'SENT';
     
@@ -110,7 +206,7 @@ export class WhatsAppService {
         toUserId,
         toPhone: cleanPhone,
         rawText: messageText,
-        messageType: 'TEXT',
+        messageType: type,
         status,
       },
     });

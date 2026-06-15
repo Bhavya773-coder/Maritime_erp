@@ -19,6 +19,8 @@ const envSchema = zod_1.z.object({
     WHATSAPP_ACCESS_TOKEN: zod_1.z.string().optional(),
     WHATSAPP_PHONE_NUMBER_ID: zod_1.z.string().optional(),
     WHATSAPP_API_VERSION: zod_1.z.string().default('v20.0'),
+    WHATSAPP_TEMPLATE_NAME: zod_1.z.string().optional(),
+    WHATSAPP_TEMPLATE_LANG: zod_1.z.string().default('en'),
 });
 const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {
