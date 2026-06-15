@@ -428,9 +428,9 @@ export class WhatsAppService {
         },
       });
 
-      // 2. Authorization check: must be registered, verified OWNER
-      if (!contact || !contact.isVerified || contact.user.role !== Role.OWNER) {
-        const replyText = 'Error: Unauthorized. Only registered and verified Owners can add staff.';
+      // 2. Authorization check: must be registered, verified OWNER or MANAGER
+      if (!contact || !contact.isVerified || (contact.user.role !== Role.OWNER && contact.user.role !== Role.MANAGER)) {
+        const replyText = 'Error: Unauthorized. Only registered and verified Owners or Managers can add staff.';
         const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
         return {
           status: 'failed',
@@ -469,9 +469,9 @@ export class WhatsAppService {
         },
       });
 
-      // 2. Authorization check: must be registered, verified OWNER or MANAGER
-      if (!contact || !contact.isVerified || (contact.user.role !== Role.OWNER && contact.user.role !== Role.MANAGER)) {
-        const replyText = 'Error: Unauthorized. Only registered and verified Owners or Managers can view the staff list.';
+      // 2. Authorization check: must be registered and verified user
+      if (!contact || !contact.isVerified) {
+        const replyText = 'Error: Unauthorized. Only registered and verified users can view the staff list.';
         const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
         return {
           status: 'failed',
