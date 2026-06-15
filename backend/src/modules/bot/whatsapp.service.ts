@@ -356,7 +356,7 @@ export class WhatsAppService {
         },
       });
 
-      const replyText = await BotFleetService.executeQuery(fleetQuery);
+      const replyText = await BotFleetService.executeQuery(fleetQuery, senderUser.id);
       
       // Send response and log outgoing BotMessage
       const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);

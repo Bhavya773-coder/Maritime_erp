@@ -1,12 +1,25 @@
 export interface FleetQuery {
-  type: 'SINGLE_VESSEL' | 'LIST_BARGES' | 'LIST_TUGS' | 'LIST_ALL' | 'LIST_IN_PORT' | 'LIST_MAINTENANCE';
+  type: 'SINGLE_VESSEL' | 'LIST_BARGES' | 'LIST_TUGS' | 'LIST_ALL' | 'LIST_IN_PORT' | 'LIST_MAINTENANCE' | 'UPDATE_LOCATION';
   vesselName?: string;
+  newLocation?: string;
 }
 
 export class BotFleetParser {
   public static parse(text: string): FleetQuery | null {
     if (!text) return null;
     const clean = text.trim().toLowerCase();
+
+    // 0. Update vessel location
+    // Matches: "Update KB 26 location to Mumbai", "update location of ARCADIA 1 to Dahej", etc.
+    const updateLocMatch = clean.match(/^update\s+(?:location\s+of\s+)?(.+?)\s+location\s+to\s+(.+)$/i) ||
+                           clean.match(/^update\s+(?:location\s+of\s+)?(.+?)\s+to\s+(.+)$/i);
+    if (updateLocMatch) {
+      return {
+        type: 'UPDATE_LOCATION',
+        vesselName: updateLocMatch[1].trim(),
+        newLocation: updateLocMatch[2].trim()
+      };
+    }
 
     // 1. Single vessel status
     // Matches: "where is ARCADIA 1", "status of ARCADIA 1", "ARCADIA 1 status", "where is KB 26", "where is ARCADIA 1?"
