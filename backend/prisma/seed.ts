@@ -74,8 +74,8 @@ async function main() {
       name: 'Dhaval Joisar',
       email: 'dhaval@apil.local',
       passwordHash,
-      role: Role.STAFF,
-      department: 'Insurance',
+      role: Role.FLEET_MANAGER,
+      department: 'Fleet',
     },
     {
       name: 'Gunvant',
@@ -90,13 +90,6 @@ async function main() {
       passwordHash,
       role: Role.STAFF,
       department: 'Purchase',
-    },
-    {
-      name: 'Ramesh Mota',
-      email: 'ramesh@apil.local',
-      passwordHash,
-      role: Role.FLEET_MANAGER,
-      department: 'Fleet',
     },
     {
       name: 'Manager Admin',
