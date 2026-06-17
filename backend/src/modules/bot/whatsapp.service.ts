@@ -490,6 +490,82 @@ export class WhatsAppService {
       };
     }
 
+    // Check if it is an AG STAFF LIST command
+    const isAGStaffListQuery = /^(?:list\s+ag\s+staff|ag\s+staff)$/i.test(cleanMsg);
+    if (isAGStaffListQuery) {
+      // 1. Log incoming BotMessage
+      await prisma.botMessage.create({
+        data: {
+          direction: 'INCOMING',
+          channel: BotChannel.WHATSAPP,
+          fromUserId: senderUser.id,
+          fromPhone: cleanPhone,
+          rawText: textBody,
+          messageType: 'TEXT',
+          status: 'RECEIVED',
+          providerMessageId,
+        },
+      });
+
+      // 2. Authorization check: must be registered and verified user
+      if (!contact || !contact.isVerified) {
+        const replyText = 'Error: Unauthorized. Only registered and verified users can view the AG staff list.';
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        return {
+          status: 'failed',
+          message: replyText,
+          outgoing: [outgoing],
+        };
+      }
+
+      // 3. Process
+      const replyText = await BotStaffService.listAGStaff();
+      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+      return {
+        status: 'success',
+        message: replyText,
+        outgoing: [outgoing],
+      };
+    }
+
+    // Check if it is an OWNERS LIST command
+    const isOwnersListQuery = /^(?:owners|list\s+owners)$/i.test(cleanMsg);
+    if (isOwnersListQuery) {
+      // 1. Log incoming BotMessage
+      await prisma.botMessage.create({
+        data: {
+          direction: 'INCOMING',
+          channel: BotChannel.WHATSAPP,
+          fromUserId: senderUser.id,
+          fromPhone: cleanPhone,
+          rawText: textBody,
+          messageType: 'TEXT',
+          status: 'RECEIVED',
+          providerMessageId,
+        },
+      });
+
+      // 2. Authorization check: must be registered and verified user
+      if (!contact || !contact.isVerified) {
+        const replyText = 'Error: Unauthorized. Only registered and verified users can view the owners list.';
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        return {
+          status: 'failed',
+          message: replyText,
+          outgoing: [outgoing],
+        };
+      }
+
+      // 3. Process
+      const replyText = await BotStaffService.listOwners();
+      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+      return {
+        status: 'success',
+        message: replyText,
+        outgoing: [outgoing],
+      };
+    }
+
     // Check if it is a reply command
     const replyCommand = BotReplyParser.parse(textBody);
     if (replyCommand) {

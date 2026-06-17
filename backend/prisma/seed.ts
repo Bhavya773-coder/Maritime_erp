@@ -98,15 +98,130 @@ async function main() {
       role: Role.MANAGER,
       department: 'Management',
     },
+    // AG Staff group
+    {
+      name: 'Yograj Jadeja',
+      email: 'yograj@apil.local',
+      passwordHash,
+      role: Role.STAFF,
+      department: 'AG',
+      phone: '919913701567',
+    },
+    {
+      name: 'Mukeah Mavi',
+      email: 'mukeah@apil.local',
+      passwordHash,
+      role: Role.STAFF,
+      department: 'AG',
+      phone: '916265938981',
+    },
+    {
+      name: 'Naresh Gayari',
+      email: 'naresh@apil.local',
+      passwordHash,
+      role: Role.STAFF,
+      department: 'AG',
+      phone: '919256009840',
+    },
+    {
+      name: 'Prakash Gayari',
+      email: 'prakash@apil.local',
+      passwordHash,
+      role: Role.STAFF,
+      department: 'AG',
+      phone: '919664099778',
+    },
+    {
+      name: 'Raman Mavi',
+      email: 'raman@apil.local',
+      passwordHash,
+      role: Role.STAFF,
+      department: 'AG',
+      phone: '918320031448',
+    },
+    {
+      name: 'Shri Ram Krishna AG',
+      email: 'shriramkrishna@apil.local',
+      passwordHash,
+      role: Role.STAFF,
+      department: 'AG',
+      phone: '919752377521',
+    },
+    {
+      name: 'Girdhar Bhagvat',
+      email: 'girdhar@apil.local',
+      passwordHash,
+      role: Role.STAFF,
+      department: 'AG',
+      phone: '919913700278',
+    },
+    // Owners
+    {
+      name: 'Arvind Bhai Shah',
+      email: 'arvind@apil.local',
+      passwordHash,
+      role: Role.OWNER,
+      department: 'Management',
+      phone: '919913411122',
+    },
+    {
+      name: 'Hetal Ben Shah',
+      email: 'hetal@apil.local',
+      passwordHash,
+      role: Role.OWNER,
+      department: 'Management',
+      phone: '919920490000',
+    },
+    {
+      name: 'Neha Ben Shah',
+      email: 'neha@apil.local',
+      passwordHash,
+      role: Role.OWNER,
+      department: 'Management',
+      phone: '919820222733',
+    },
+    {
+      name: 'Chintan Bhai Shah',
+      email: 'chintan@apil.local',
+      passwordHash,
+      role: Role.OWNER,
+      department: 'Management',
+      phone: '919820000050',
+    },
   ];
 
   console.log('Seeding users...');
   for (const u of usersData) {
-    await prisma.user.upsert({
+    const { phone, ...userFields } = u as any;
+    const dbUser = await prisma.user.upsert({
       where: { email: u.email },
-      update: {},
-      create: u,
+      update: {
+        role: u.role,
+        department: u.department,
+      },
+      create: userFields,
     });
+
+    if (phone) {
+      await prisma.userContact.upsert({
+        where: {
+          userId_phoneNumber_channel: {
+            userId: dbUser.id,
+            phoneNumber: phone,
+            channel: 'WHATSAPP',
+          },
+        },
+        update: {
+          isVerified: true,
+        },
+        create: {
+          userId: dbUser.id,
+          phoneNumber: phone,
+          channel: 'WHATSAPP',
+          isVerified: true,
+        },
+      });
+    }
   }
 
   // 2. Seed Vessels (22 Barges + 5 Tugs) from the Excel lists

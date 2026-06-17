@@ -24,7 +24,10 @@ export class BotStaffService {
     let department = 'Operations';
 
     const posLower = position.toLowerCase().trim();
-    if (posLower.includes('owner')) {
+    if (posLower === 'ag' || posLower === 'ag staff') {
+      role = Role.STAFF;
+      department = 'AG';
+    } else if (posLower.includes('owner')) {
       role = Role.OWNER;
       department = 'Management';
     } else if (posLower.includes('fleet manager')) {
@@ -118,12 +121,16 @@ export class BotStaffService {
   }
 
   /**
-   * List all registered staff members with phone numbers and display the total count
+   * List all registered staff members with phone numbers and display the total count (excluding Owners and AG Staff)
    */
   public static async listStaff(): Promise<string> {
     try {
       const users = await prisma.user.findMany({
-        where: { isActive: true },
+        where: { 
+          isActive: true,
+          role: { not: Role.OWNER },
+          NOT: { department: 'AG' }
+        },
         include: {
           contacts: {
             where: { channel: BotChannel.WHATSAPP, isVerified: true }
@@ -148,6 +155,80 @@ export class BotStaffService {
     } catch (err: any) {
       console.error('[BotStaffService] Error listing staff:', err);
       return `Error retrieving staff list: ${err.message}`;
+    }
+  }
+
+  /**
+   * List all registered AG staff members with phone numbers
+   */
+  public static async listAGStaff(): Promise<string> {
+    try {
+      const users = await prisma.user.findMany({
+        where: { 
+          isActive: true,
+          department: 'AG'
+        },
+        include: {
+          contacts: {
+            where: { channel: BotChannel.WHATSAPP, isVerified: true }
+          }
+        },
+        orderBy: { name: 'asc' }
+      });
+
+      if (users.length === 0) {
+        return `ARVIND PORT & INFRA LIMITED AG STAFF MEMBERS\n=========================================\nNo active AG staff members found.`;
+      }
+
+      let response = `ARVIND PORT & INFRA LIMITED AG STAFF MEMBERS\n=========================================\nTOTAL AG STAFF: ${users.length}\n`;
+
+      users.forEach((u, index) => {
+        const phone = u.contacts.length > 0 ? `+${u.contacts[0].phoneNumber}` : 'NO REGISTERED WHATSAPP';
+        const dept = u.department ? u.department.toUpperCase() : 'N/A';
+        response += `\nSR. NO.: ${index + 1}\nNAME: ${u.name.toUpperCase()}\nROLE: ${u.role}\nDEPARTMENT: ${dept}\nWHATSAPP: ${phone}\n`;
+      });
+
+      return response.trim();
+    } catch (err: any) {
+      console.error('[BotStaffService] Error listing AG staff:', err);
+      return `Error retrieving AG staff list: ${err.message}`;
+    }
+  }
+
+  /**
+   * List all registered owners with phone numbers
+   */
+  public static async listOwners(): Promise<string> {
+    try {
+      const users = await prisma.user.findMany({
+        where: { 
+          isActive: true,
+          role: Role.OWNER
+        },
+        include: {
+          contacts: {
+            where: { channel: BotChannel.WHATSAPP, isVerified: true }
+          }
+        },
+        orderBy: { name: 'asc' }
+      });
+
+      if (users.length === 0) {
+        return `ARVIND PORT & INFRA LIMITED OWNERS\n=========================================\nNo active owners found.`;
+      }
+
+      let response = `ARVIND PORT & INFRA LIMITED OWNERS\n=========================================\nTOTAL OWNERS: ${users.length}\n`;
+
+      users.forEach((u, index) => {
+        const phone = u.contacts.length > 0 ? `+${u.contacts[0].phoneNumber}` : 'NO REGISTERED WHATSAPP';
+        const dept = u.department ? u.department.toUpperCase() : 'N/A';
+        response += `\nSR. NO.: ${index + 1}\nNAME: ${u.name.toUpperCase()}\nROLE: ${u.role}\nDEPARTMENT: ${dept}\nWHATSAPP: ${phone}\n`;
+      });
+
+      return response.trim();
+    } catch (err: any) {
+      console.error('[BotStaffService] Error listing owners:', err);
+      return `Error retrieving owners list: ${err.message}`;
     }
   }
 }
