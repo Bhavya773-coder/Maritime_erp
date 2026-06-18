@@ -1,24 +1,97 @@
 import { env } from '../../config/env';
+import prisma from '../../config/db';
 
 export interface LlmTranslation {
   isERPRelated: boolean;
   extractedCommand: string | null;
+  directResponse: string | null;
 }
 
 export class LlmService {
   /**
-   * Translates natural language message to standard bot command using self-hosted Llama LLM
+   * Fetches active database records to feed to the LLM context.
+   */
+  private static async getDatabaseContext(): Promise<string> {
+    try {
+      const [vessels, users, tasks] = await Promise.all([
+        prisma.vessel.findMany({
+          where: { deletedAt: null },
+          select: {
+            name: true,
+            type: true,
+            status: true,
+            currentLocation: true,
+            irsIv: true
+          }
+        }),
+        prisma.user.findMany({
+          where: { isActive: true },
+          select: {
+            name: true,
+            role: true,
+            department: true
+          }
+        }),
+        prisma.task.findMany({
+          where: { isDeleted: false, status: { not: 'COMPLETED' } },
+          select: {
+            title: true,
+            status: true,
+            priority: true,
+            assignee: { select: { name: true } }
+          }
+        })
+      ]);
+
+      return JSON.stringify({
+        vessels: vessels.map(v => ({
+          name: v.name,
+          type: v.type, // BARGE or TUG
+          status: v.status,
+          location: v.currentLocation,
+          irsIv: v.irsIv // "IV" or "IRS"
+        })),
+        staff: users.map(u => ({
+          name: u.name,
+          role: u.role,
+          department: u.department
+        })),
+        activeTasks: tasks.map(t => ({
+          title: t.title,
+          status: t.status,
+          priority: t.priority,
+          assignee: t.assignee?.name || 'Unassigned'
+        }))
+      });
+    } catch (err) {
+      console.error('[LlmService] Error fetching database context:', err);
+      return '{}';
+    }
+  }
+
+  /**
+   * Translates natural language message to standard bot command or answers directly from database context.
    */
   public static async translateMessage(messageText: string): Promise<LlmTranslation> {
     if (!env.LLAMA_API_URL) {
       console.log('[LlmService] LLAMA_API_URL is not configured. Skipping LLM translation.');
-      return { isERPRelated: true, extractedCommand: messageText };
+      return { isERPRelated: true, extractedCommand: messageText, directResponse: null };
     }
 
-    const systemPrompt = `You are an intelligent natural language translation engine for the Arvind Port & Infra Limited Maritime ERP bot.
-Your job is to translate natural language user messages into standard ERP bot commands, or flag the message if it is not related to ERP operations.
+    const dbContext = await this.getDatabaseContext();
 
-Available standard bot commands:
+    const systemPrompt = `You are an intelligent natural language translation and query-answering engine for the Arvind Port & Infra Limited Maritime ERP bot.
+You are given the active database context (including vessels, staff, and active tasks) as JSON below:
+
+DATABASE CONTEXT:
+${dbContext}
+
+Your job is to either:
+1. Translate standard action requests (like task assignments, status changes, adding staff) into standard ERP commands.
+2. Directly answer general informational queries about the database context (e.g. vessel counts, staff roles, tasks, certificate types like IV/IRS).
+3. Flag off-topic/unrelated questions.
+
+Available standard bot commands (for action requests):
 1. Task Assignment:
    - Format: "Tell/Ask/Remind <Name> to <Action>" (e.g. "Tell Hardik K to check the fuel")
    - Keywords/contexts: "tomorrow", "today", "monday", "urgent", "high", "low"
@@ -39,13 +112,15 @@ Available standard bot commands:
    - Format: "HELP"
 
 Guidelines:
-- If the user's message is related to ERP operations (tasks, vessels, locations, staff list, adding staff, updates), set isERPRelated to true, and translate their message into the most appropriate standard command.
-- If the user's message is a general question, coding question, writing task, general knowledge, or anything not related to maritime ERP operations, set isERPRelated to false, and leave extractedCommand as null.
+- **Informational Queries**: If the user asks a question about the data in the system (e.g. "how many barges are of IV type", "who is deven", "what tasks are high priority", "list all barges", etc.), query the DATABASE CONTEXT provided above and answer the question directly. Write your answer in natural, friendly, and professional language, and put it in the "directResponse" field. Set "extractedCommand" to null.
+- **Action Commands**: If the user wants to trigger an action (e.g. assign a task, update a location, add staff, or check a specific vessel's location using the standard command), translate their request into the most appropriate standard command and put it in the "extractedCommand" field. Set "directResponse" to null.
+- **Off-Topic Refusals**: If the message is a general knowledge question, coding help, writing task, or anything not related to maritime ERP operations or the database context, set "isERPRelated" to false, "extractedCommand" to null, and "directResponse" to null.
 
-You must reply with ONLY a JSON object in this format (no other text, no markdown block formatting):
+You must reply with ONLY a JSON object in this format (no other text):
 {
   "isERPRelated": boolean,
-  "extractedCommand": string | null
+  "extractedCommand": string | null,
+  "directResponse": string | null
 }`;
 
     const headers: Record<string, string> = {
@@ -77,7 +152,7 @@ You must reply with ONLY a JSON object in this format (no other text, no markdow
       if (!response.ok) {
         const errText = await response.text();
         console.error(`[LlmService] Ollama API error: ${response.status} - ${errText}`);
-        return { isERPRelated: true, extractedCommand: messageText };
+        return { isERPRelated: true, extractedCommand: messageText, directResponse: null };
       }
 
       const resJson: any = await response.json();
@@ -89,19 +164,19 @@ You must reply with ONLY a JSON object in this format (no other text, no markdow
       const match = rawContent.match(/\{[\s\S]*\}/);
       if (!match) {
         console.warn('[LlmService] Failed to extract JSON block from LLM response.');
-        return { isERPRelated: true, extractedCommand: messageText };
+        return { isERPRelated: true, extractedCommand: messageText, directResponse: null };
       }
 
       const parsed = JSON.parse(match[0]) as LlmTranslation;
       return {
         isERPRelated: typeof parsed.isERPRelated === 'boolean' ? parsed.isERPRelated : true,
-        extractedCommand: parsed.extractedCommand || null
+        extractedCommand: parsed.extractedCommand || null,
+        directResponse: parsed.directResponse || null
       };
 
     } catch (err: any) {
       console.error('[LlmService] Exception during LLM query:', err);
-      // Fallback: return original message to let existing regex engines parse it
-      return { isERPRelated: true, extractedCommand: messageText };
+      return { isERPRelated: true, extractedCommand: messageText, directResponse: null };
     }
   }
 }

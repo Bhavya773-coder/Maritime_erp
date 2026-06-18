@@ -407,6 +407,27 @@ export class WhatsAppService {
             message: replyText,
             outgoing: [outgoing],
           };
+        } else if (translation.directResponse) {
+          // Log incoming BotMessage with original text
+          await prisma.botMessage.create({
+            data: {
+              direction: 'INCOMING',
+              channel: BotChannel.WHATSAPP,
+              fromUserId: senderUser.id,
+              fromPhone: cleanPhone,
+              rawText: originalTextBody,
+              messageType: 'TEXT',
+              status: 'RECEIVED',
+              providerMessageId,
+            },
+          });
+
+          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, translation.directResponse);
+          return {
+            status: 'success',
+            message: translation.directResponse,
+            outgoing: [outgoing],
+          };
         } else if (translation.extractedCommand) {
           console.log(`[LlmService] Natural language: "${textBody}" -> Command: "${translation.extractedCommand}"`);
           currentText = translation.extractedCommand;
