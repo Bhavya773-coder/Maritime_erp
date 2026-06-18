@@ -384,7 +384,7 @@ export class WhatsAppService {
     // LLM translation and scope validation
     if (env.LLAMA_API_URL) {
       try {
-        const translation = await LlmService.translateMessage(textBody);
+        const translation = await LlmService.translateMessage(textBody, senderUser.id);
         if (!translation.isERPRelated) {
           // Log incoming BotMessage with original text
           await prisma.botMessage.create({

@@ -9,6 +9,36 @@ export interface LlmTranslation {
 
 export class LlmService {
   /**
+   * Retrieves the recent chat history for a sender to provide conversational context.
+   */
+  private static async getChatHistory(senderUserId: string): Promise<{ role: string; content: string }[]> {
+    try {
+      const messages = await prisma.botMessage.findMany({
+        where: {
+          channel: 'WHATSAPP',
+          OR: [
+            { fromUserId: senderUserId },
+            { toUserId: senderUserId }
+          ]
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 8 // Fetch last 8 messages for context
+      });
+
+      // Reverse to chronological order (oldest first)
+      const sorted = messages.reverse();
+
+      return sorted.map(m => ({
+        role: m.direction === 'INCOMING' ? 'user' : 'assistant',
+        content: m.rawText
+      }));
+    } catch (err) {
+      console.error('[LlmService] Error fetching chat history:', err);
+      return [];
+    }
+  }
+
+  /**
    * Fetches active database records to feed to the LLM context.
    */
   private static async getDatabaseContext(): Promise<string> {
@@ -72,13 +102,16 @@ export class LlmService {
   /**
    * Translates natural language message to standard bot command or answers directly from database context.
    */
-  public static async translateMessage(messageText: string): Promise<LlmTranslation> {
+  public static async translateMessage(messageText: string, senderUserId: string): Promise<LlmTranslation> {
     if (!env.LLAMA_API_URL) {
       console.log('[LlmService] LLAMA_API_URL is not configured. Skipping LLM translation.');
       return { isERPRelated: true, extractedCommand: messageText, directResponse: null };
     }
 
-    const dbContext = await this.getDatabaseContext();
+    const [dbContext, history] = await Promise.all([
+      this.getDatabaseContext(),
+      this.getChatHistory(senderUserId)
+    ]);
 
     const systemPrompt = `You are an intelligent natural language translation and query-answering engine for the Arvind Port & Infra Limited Maritime ERP bot.
 You are given the active database context (including vessels, staff, and active tasks) as JSON below:
@@ -139,6 +172,7 @@ You must reply with ONLY a JSON object in this format (no other text):
           model: env.LLAMA_MODEL_NAME,
           messages: [
             { role: 'system', content: systemPrompt },
+            ...history,
             { role: 'user', content: messageText }
           ],
           stream: false,
