@@ -394,12 +394,249 @@ export class WhatsAppService {
           name: `Unregistered (${cleanPhone})`,
         };
 
+    // Helper to process predefined rigid commands
+    const runPredefinedCommands = async (textToProcess: string): Promise<any | null> => {
+      const cleanMsg = textToProcess.trim().toLowerCase();
+
+      // 1. Check if it is a menu/buttons/start/hi/hello/hey command
+      if (cleanMsg === 'menu' || cleanMsg === 'buttons' || cleanMsg === 'start' || cleanMsg === 'hi' || cleanMsg === 'hello' || cleanMsg === 'hey') {
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+
+        const bodyText = `Welcome to Arvind Port & Infra Limited Bot Menu.\nPlease select an option below:`;
+        const buttons = [
+          { id: 'btn_show_barges', title: 'Show all barges' },
+          { id: 'btn_show_tugs', title: 'Show all tugs' },
+          { id: 'btn_status', title: 'STATUS' }
+        ];
+
+        const outgoing = await this.sendWhatsAppButtonsAndLog(senderUser.id, cleanPhone, bodyText, buttons);
+
+        return {
+          status: 'success',
+          message: bodyText,
+          outgoing: [outgoing],
+        };
+      }
+
+      // 2. Check if it is an ADD STAFF command
+      const addStaffMatch = textToProcess.trim().match(/^add\s+staff\s+(.+?)\s+(\+?\d[\d\s-]+)\s+(.+)$/i);
+      if (addStaffMatch) {
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+
+        if (!contact || !contact.isVerified || (contact.user.role !== Role.OWNER && contact.user.role !== Role.MANAGER)) {
+          const replyText = 'Error: Unauthorized. Only registered and verified Owners or Managers can add staff.';
+          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+          return {
+            status: 'failed',
+            message: replyText,
+            outgoing: [outgoing],
+          };
+        }
+
+        const name = addStaffMatch[1].trim();
+        const phone = addStaffMatch[2].trim();
+        const position = addStaffMatch[3].trim();
+        const replyText = await BotStaffService.addStaff(senderUser.id, name, phone, position);
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        return {
+          status: 'success',
+          message: replyText,
+          outgoing: [outgoing],
+        };
+      }
+
+      // 3. Check if it is a STAFF LIST command
+      const isStaffListQuery = /^(?:staff\s+list|list\s+staff|show\s+all\s+staff|show\s+staff|how\s+many\s+members(?:\s+do\s+(?:i|we)\s+have)?)$/i.test(cleanMsg);
+      if (isStaffListQuery) {
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+
+        if (!contact || !contact.isVerified) {
+          const replyText = 'Error: Unauthorized. Only registered and verified users can view the staff list.';
+          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+          return {
+            status: 'failed',
+            message: replyText,
+            outgoing: [outgoing],
+          };
+        }
+
+        const replyText = await BotStaffService.listStaff();
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        return {
+          status: 'success',
+          message: replyText,
+          outgoing: [outgoing],
+        };
+      }
+
+      // 4. Check if it is an AG STAFF LIST command
+      const isAGStaffListQuery = /^(?:list\s+ag\s+staff|ag\s+staff)$/i.test(cleanMsg);
+      if (isAGStaffListQuery) {
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+
+        if (!contact || !contact.isVerified) {
+          const replyText = 'Error: Unauthorized. Only registered and verified users can view the AG staff list.';
+          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+          return {
+            status: 'failed',
+            message: replyText,
+            outgoing: [outgoing],
+          };
+        }
+
+        const replyText = await BotStaffService.listAGStaff();
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        return {
+          status: 'success',
+          message: replyText,
+          outgoing: [outgoing],
+        };
+      }
+
+      // 5. Check if it is an OWNERS LIST command
+      const isOwnersListQuery = /^(?:owners|list\s+owners)$/i.test(cleanMsg);
+      if (isOwnersListQuery) {
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+
+        if (!contact || !contact.isVerified) {
+          const replyText = 'Error: Unauthorized. Only registered and verified users can view the owners list.';
+          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+          return {
+            status: 'failed',
+            message: replyText,
+            outgoing: [outgoing],
+          };
+        }
+
+        const replyText = await BotStaffService.listOwners();
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        return {
+          status: 'success',
+          message: replyText,
+          outgoing: [outgoing],
+        };
+      }
+
+      // 6. Check if it is a reply command
+      const replyCommand = BotReplyParser.parse(textToProcess);
+      if (replyCommand) {
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+
+        return await BotReplyService.executeReplyCommand(
+          senderUser,
+          replyCommand,
+          cleanPhone,
+          providerMessageId
+        );
+      }
+
+      // 7. Check if it is a fleet info query
+      const fleetQuery = BotFleetParser.parse(textToProcess);
+      if (fleetQuery) {
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+
+        const replyText = await BotFleetService.executeQuery(fleetQuery, senderUser.id);
+        
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+
+        return {
+          status: 'success',
+          message: replyText,
+          outgoing: [outgoing],
+        };
+      }
+
+      return null;
+    };
+
+    // Run predefined check first (fast-path)
+    const fastPathResult = await runPredefinedCommands(textBody);
+    if (fastPathResult) {
+      return fastPathResult;
+    }
+
     // LLM translation and scope validation
     if (env.LLAMA_API_URL) {
       try {
-        const translation = await LlmService.translateMessage(textBody, senderUser.id);
+        const translation = await LlmService.translateMessage(textBody, senderUser.id, senderUser.name, senderUser.role);
         if (!translation.isERPRelated) {
-          // Log incoming BotMessage with original text
           await prisma.botMessage.create({
             data: {
               direction: 'INCOMING',
@@ -461,255 +698,19 @@ export class WhatsAppService {
         } else if (translation.extractedCommand) {
           console.log(`[LlmService] Natural language: "${textBody}" -> Command: "${translation.extractedCommand}"`);
           currentText = translation.extractedCommand;
+
+          // Re-evaluate the extracted command against predefined commands
+          const extractedResult = await runPredefinedCommands(currentText);
+          if (extractedResult) {
+            return extractedResult;
+          }
         }
       } catch (err) {
         console.error('[LlmService] Error during translation, falling back to raw message:', err);
       }
     }
 
-    // Check if it is a menu/buttons/start/hi/hello/hey command
-    const cleanMsg = currentText.trim().toLowerCase();
-    if (cleanMsg === 'menu' || cleanMsg === 'buttons' || cleanMsg === 'start' || cleanMsg === 'hi' || cleanMsg === 'hello' || cleanMsg === 'hey') {
-      // 1. Log incoming BotMessage
-      await prisma.botMessage.create({
-        data: {
-          direction: 'INCOMING',
-          channel: BotChannel.WHATSAPP,
-          fromUserId: senderUser.id,
-          fromPhone: cleanPhone,
-          rawText: originalTextBody,
-          messageType: 'TEXT',
-          status: 'RECEIVED',
-          providerMessageId,
-        },
-      });
-
-      const bodyText = `Welcome to Arvind Port & Infra Limited Bot Menu.\nPlease select an option below:`;
-      const buttons = [
-        { id: 'btn_show_barges', title: 'Show all barges' },
-        { id: 'btn_show_tugs', title: 'Show all tugs' },
-        { id: 'btn_status', title: 'STATUS' }
-      ];
-
-      const outgoing = await this.sendWhatsAppButtonsAndLog(senderUser.id, cleanPhone, bodyText, buttons);
-
-      return {
-        status: 'success',
-        message: bodyText,
-        outgoing: [outgoing],
-      };
-    }
-
-    // Check if it is an ADD STAFF command
-    const addStaffMatch = currentText.trim().match(/^add\s+staff\s+(.+?)\s+(\+?\d[\d\s-]+)\s+(.+)$/i);
-    if (addStaffMatch) {
-      // 1. Log incoming BotMessage
-      await prisma.botMessage.create({
-        data: {
-          direction: 'INCOMING',
-          channel: BotChannel.WHATSAPP,
-          fromUserId: senderUser.id,
-          fromPhone: cleanPhone,
-          rawText: originalTextBody,
-          messageType: 'TEXT',
-          status: 'RECEIVED',
-          providerMessageId,
-        },
-      });
-
-      // 2. Authorization check: must be registered, verified OWNER or MANAGER
-      if (!contact || !contact.isVerified || (contact.user.role !== Role.OWNER && contact.user.role !== Role.MANAGER)) {
-        const replyText = 'Error: Unauthorized. Only registered and verified Owners or Managers can add staff.';
-        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-        return {
-          status: 'failed',
-          message: replyText,
-          outgoing: [outgoing],
-        };
-      }
-
-      // 3. Process
-      const name = addStaffMatch[1].trim();
-      const phone = addStaffMatch[2].trim();
-      const position = addStaffMatch[3].trim();
-      const replyText = await BotStaffService.addStaff(senderUser.id, name, phone, position);
-      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-      return {
-        status: 'success',
-        message: replyText,
-        outgoing: [outgoing],
-      };
-    }
-
-    // Check if it is a STAFF LIST command
-    const isStaffListQuery = /^(?:staff\s+list|list\s+staff|show\s+all\s+staff|show\s+staff|how\s+many\s+members(?:\s+do\s+(?:i|we)\s+have)?)$/i.test(cleanMsg);
-    if (isStaffListQuery) {
-      // 1. Log incoming BotMessage
-      await prisma.botMessage.create({
-        data: {
-          direction: 'INCOMING',
-          channel: BotChannel.WHATSAPP,
-          fromUserId: senderUser.id,
-          fromPhone: cleanPhone,
-          rawText: originalTextBody,
-          messageType: 'TEXT',
-          status: 'RECEIVED',
-          providerMessageId,
-        },
-      });
-
-      // 2. Authorization check: must be registered and verified user
-      if (!contact || !contact.isVerified) {
-        const replyText = 'Error: Unauthorized. Only registered and verified users can view the staff list.';
-        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-        return {
-          status: 'failed',
-          message: replyText,
-          outgoing: [outgoing],
-        };
-      }
-
-      // 3. Process
-      const replyText = await BotStaffService.listStaff();
-      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-      return {
-        status: 'success',
-        message: replyText,
-        outgoing: [outgoing],
-      };
-    }
-
-    // Check if it is an AG STAFF LIST command
-    const isAGStaffListQuery = /^(?:list\s+ag\s+staff|ag\s+staff)$/i.test(cleanMsg);
-    if (isAGStaffListQuery) {
-      // 1. Log incoming BotMessage
-      await prisma.botMessage.create({
-        data: {
-          direction: 'INCOMING',
-          channel: BotChannel.WHATSAPP,
-          fromUserId: senderUser.id,
-          fromPhone: cleanPhone,
-          rawText: originalTextBody,
-          messageType: 'TEXT',
-          status: 'RECEIVED',
-          providerMessageId,
-        },
-      });
-
-      // 2. Authorization check: must be registered and verified user
-      if (!contact || !contact.isVerified) {
-        const replyText = 'Error: Unauthorized. Only registered and verified users can view the AG staff list.';
-        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-        return {
-          status: 'failed',
-          message: replyText,
-          outgoing: [outgoing],
-        };
-      }
-
-      // 3. Process
-      const replyText = await BotStaffService.listAGStaff();
-      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-      return {
-        status: 'success',
-        message: replyText,
-        outgoing: [outgoing],
-      };
-    }
-
-    // Check if it is an OWNERS LIST command
-    const isOwnersListQuery = /^(?:owners|list\s+owners)$/i.test(cleanMsg);
-    if (isOwnersListQuery) {
-      // 1. Log incoming BotMessage
-      await prisma.botMessage.create({
-        data: {
-          direction: 'INCOMING',
-          channel: BotChannel.WHATSAPP,
-          fromUserId: senderUser.id,
-          fromPhone: cleanPhone,
-          rawText: originalTextBody,
-          messageType: 'TEXT',
-          status: 'RECEIVED',
-          providerMessageId,
-        },
-      });
-
-      // 2. Authorization check: must be registered and verified user
-      if (!contact || !contact.isVerified) {
-        const replyText = 'Error: Unauthorized. Only registered and verified users can view the owners list.';
-        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-        return {
-          status: 'failed',
-          message: replyText,
-          outgoing: [outgoing],
-        };
-      }
-
-      // 3. Process
-      const replyText = await BotStaffService.listOwners();
-      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-      return {
-        status: 'success',
-        message: replyText,
-        outgoing: [outgoing],
-      };
-    }
-
-    // Check if it is a reply command
-    const replyCommand = BotReplyParser.parse(currentText);
-    if (replyCommand) {
-      // 1. Log incoming BotMessage
-      await prisma.botMessage.create({
-        data: {
-          direction: 'INCOMING',
-          channel: BotChannel.WHATSAPP,
-          fromUserId: senderUser.id,
-          fromPhone: cleanPhone,
-          rawText: originalTextBody,
-          messageType: 'TEXT',
-          status: 'RECEIVED',
-          providerMessageId,
-        },
-      });
-
-      return await BotReplyService.executeReplyCommand(
-        senderUser,
-        replyCommand,
-        cleanPhone,
-        providerMessageId
-      );
-    }
-
-    // Check if it is a fleet info query
-    const fleetQuery = BotFleetParser.parse(currentText);
-    if (fleetQuery) {
-      // Log incoming BotMessage
-      await prisma.botMessage.create({
-        data: {
-          direction: 'INCOMING',
-          channel: BotChannel.WHATSAPP,
-          fromUserId: senderUser.id,
-          fromPhone: cleanPhone,
-          rawText: originalTextBody,
-          messageType: 'TEXT',
-          status: 'RECEIVED',
-          providerMessageId,
-        },
-      });
-
-      const replyText = await BotFleetService.executeQuery(fleetQuery, senderUser.id);
-      
-      // Send response and log outgoing BotMessage
-      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-
-      return {
-        status: 'success',
-        message: replyText,
-        outgoing: [outgoing],
-      };
-    }
-
-    // Log incoming BotMessage for core commands
+    // Log incoming BotMessage for fallback command execution
     await prisma.botMessage.create({
       data: {
         direction: 'INCOMING',
@@ -731,7 +732,6 @@ export class WhatsAppService {
     });
 
     if (result.status === 'success' && result.data) {
-      // Dispatch and log notifications generated by Bot Core
       const notifications = result.data.notifications;
       const outgoingMessages: any[] = [];
       for (const n of notifications) {
@@ -750,10 +750,7 @@ export class WhatsAppService {
         outgoing: outgoingMessages,
       };
     } else {
-      // NEEDS_CONFIRMATION or FAILED
       const replyText = result.message || 'Command execution failed.';
-      
-      // Send response and log outgoing BotMessage
       const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
 
       return {

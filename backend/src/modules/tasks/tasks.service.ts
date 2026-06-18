@@ -217,6 +217,33 @@ export class TasksService {
           note: 'Initial assignment',
         },
       });
+
+      // Create BotReminder
+      const nextReminderAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+      await prisma.botReminder.create({
+        data: {
+          taskId: task.id,
+          assignedToId: task.assignedToId,
+          reminderType: 'TASK_PENDING',
+          frequencyHours: 24,
+          nextReminderAt,
+          status: 'ACTIVE',
+        },
+      });
+
+      // Send WhatsApp notification immediately
+      try {
+        const assigneeContact = await prisma.userContact.findFirst({
+          where: { userId: task.assignedToId, channel: 'WHATSAPP' },
+        });
+        if (assigneeContact) {
+          const { WhatsAppService } = await import('../bot/whatsapp.service');
+          const rawText = `New task from ${creator.name}: ${task.title}. Priority: ${task.priority}. Due: ${task.dueDate.toISOString().split('T')[0]}.`;
+          await WhatsAppService.sendWhatsAppAndLog(task.assignedToId, assigneeContact.phoneNumber, rawText);
+        }
+      } catch (err) {
+        console.error('[TasksService] Error sending task creation WhatsApp:', err);
+      }
     }
 
     // Log to AuditLog
@@ -325,6 +352,29 @@ export class TasksService {
       },
     });
 
+    // If status is COMPLETED, mark related BotReminders COMPLETED
+    if (status === 'COMPLETED') {
+      await prisma.botReminder.updateMany({
+        where: { taskId: id, status: 'ACTIVE' },
+        data: { status: 'COMPLETED' },
+      });
+    }
+
+    // Send WhatsApp acknowledgement to creator
+    try {
+      const creatorContact = await prisma.userContact.findFirst({
+        where: { userId: updatedTask.createdById, channel: 'WHATSAPP' }
+      });
+      // Only notify if updating user is not the creator
+      if (creatorContact && updatedTask.createdById !== user.id) {
+        const { WhatsAppService } = await import('../bot/whatsapp.service');
+        const rawText = `${user.name} marked task "${updatedTask.title}" as ${status}.`;
+        await WhatsAppService.sendWhatsAppAndLog(updatedTask.createdById, creatorContact.phoneNumber, rawText);
+      }
+    } catch (err) {
+      console.error('[TasksService] Error sending task status update WhatsApp:', err);
+    }
+
     // Write to AuditLog
     await prisma.auditLog.create({
       data: {
@@ -400,6 +450,37 @@ export class TasksService {
         status: TaskStatus.DELEGATED,
       },
     });
+
+    // Update ACTIVE bot reminders to point to the new assignee
+    await prisma.botReminder.updateMany({
+      where: { taskId: id, status: 'ACTIVE' },
+      data: { assignedToId: targetUserId },
+    });
+
+    // Send WhatsApp notification to new assignee and acknowledgement to creator
+    try {
+      const { WhatsAppService } = await import('../bot/whatsapp.service');
+
+      // 1. Notify new assignee
+      const assigneeContact = await prisma.userContact.findFirst({
+        where: { userId: targetUserId, channel: 'WHATSAPP' }
+      });
+      if (assigneeContact) {
+        const assigneeText = `New task delegated to you by ${user.name}: ${task.title}. Note: ${note || 'Delegated'}`;
+        await WhatsAppService.sendWhatsAppAndLog(targetUserId, assigneeContact.phoneNumber, assigneeText);
+      }
+
+      // 2. Notify creator
+      const creatorContact = await prisma.userContact.findFirst({
+        where: { userId: task.createdById, channel: 'WHATSAPP' }
+      });
+      if (creatorContact && task.createdById !== user.id) {
+        const creatorText = `${user.name} delegated task "${task.title}" to ${targetUser.name}. Note: ${note || 'Delegated'}`;
+        await WhatsAppService.sendWhatsAppAndLog(task.createdById, creatorContact.phoneNumber, creatorText);
+      }
+    } catch (err) {
+      console.error('[TasksService] Error sending delegation WhatsApp:', err);
+    }
 
     // Write to AuditLog
     await prisma.auditLog.create({

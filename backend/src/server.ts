@@ -2,9 +2,32 @@ import app from './app';
 import { env } from './config/env';
 import https from 'https';
 import http from 'http';
+import { BotReminderService } from './modules/bot/bot.reminder-service';
 
 const server = app.listen(env.PORT, () => {
   console.log(`🚀 Maritime ERP Server listening on port ${env.PORT} in ${env.NODE_ENV} mode`);
+
+  // Run due reminders check immediately on server startup after a 5 second delay
+  setTimeout(async () => {
+    try {
+      console.log('[Scheduler] Running initial due reminders check...');
+      const stats = await BotReminderService.processDueReminders();
+      console.log('[Scheduler] Initial reminders check finished:', stats);
+    } catch (err) {
+      console.error('[Scheduler] Error running initial reminders check:', err);
+    }
+  }, 5000);
+
+  // Set up repeating due reminders check every 5 minutes
+  setInterval(async () => {
+    try {
+      console.log('[Scheduler] Running due reminders check...');
+      const stats = await BotReminderService.processDueReminders();
+      console.log('[Scheduler] Reminders check finished:', stats);
+    } catch (err) {
+      console.error('[Scheduler] Error running reminders check:', err);
+    }
+  }, 5 * 60 * 1000); // 5 minutes
 
   // Start self-pinging keep-alive mechanism to prevent Render Free Tier spin-down
   const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;

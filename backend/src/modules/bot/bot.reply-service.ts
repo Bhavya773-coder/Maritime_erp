@@ -35,9 +35,6 @@ export class BotReplyService {
           status: { not: 'COMPLETED' },
           isDeleted: false,
           deletedAt: null,
-          botCommands: {
-            some: {},
-          },
         },
         orderBy: {
           createdAt: 'desc',
@@ -295,11 +292,25 @@ export class BotReplyService {
         assigneeMsg = await WhatsAppService.sendWhatsAppAndLog(assignee.id, assigneeContact.phoneNumber, assigneeText);
       }
 
+      // Notify task creator
+      let creatorMsg: any = null;
+      const creatorContact = await prisma.userContact.findFirst({
+        where: { userId: updatedTask.createdById, channel: BotChannel.WHATSAPP },
+      });
+      if (creatorContact && updatedTask.createdById !== sender.id) {
+        const creatorText = `${sender.name} delegated task "${task.title}" to ${assignee.name}. Note: ${note}`;
+        creatorMsg = await WhatsAppService.sendWhatsAppAndLog(updatedTask.createdById, creatorContact.phoneNumber, creatorText);
+      }
+
       return {
         status: 'success',
         data: {
           task: updatedTask,
-          notifications: assigneeMsg ? [senderMsg, assigneeMsg] : [senderMsg],
+          notifications: [
+            senderMsg,
+            ...(assigneeMsg ? [assigneeMsg] : []),
+            ...(creatorMsg ? [creatorMsg] : [])
+          ],
         },
       };
     }
@@ -331,16 +342,13 @@ export class BotReplyService {
       return { task };
     }
 
-    // Else find active bot-created tasks assigned to the user
+    // Else find active tasks assigned to the user
     const activeTasks = await prisma.task.findMany({
       where: {
         assignedToId: userId,
         status: { not: 'COMPLETED' },
         isDeleted: false,
         deletedAt: null,
-        botCommands: {
-          some: {}, // Has at least one BotCommand
-        },
       },
       orderBy: {
         createdAt: 'desc',

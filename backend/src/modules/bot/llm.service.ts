@@ -84,9 +84,22 @@ export class LlmService {
 
             auditLogs.push(`Created task "${task.title}" (ID: ${task.id}) assigned to ${assignee.name}`);
 
+            // Create BotReminder
+            const nextReminderAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+            await prisma.botReminder.create({
+              data: {
+                taskId: task.id,
+                assignedToId: assignee.id,
+                reminderType: 'TASK_PENDING',
+                frequencyHours: 24,
+                nextReminderAt,
+                status: 'ACTIVE'
+              }
+            });
+
             // Find WhatsApp contact of assignee to send notification
             const assigneeContact = await prisma.userContact.findFirst({
-              where: { userId: assignee.id, channel: 'WHATSAPP', isVerified: true }
+              where: { userId: assignee.id, channel: 'WHATSAPP' }
             });
 
             if (assigneeContact) {
@@ -108,7 +121,7 @@ export class LlmService {
           }
 
           case 'updateTask': {
-            const { titleContains, taskId, status } = op.params || {};
+            const { titleContains, taskId, status, assigneeName, note } = op.params || {};
             const whereClause: any = { isDeleted: false };
             if (taskId) {
               whereClause.id = taskId;
@@ -116,15 +129,130 @@ export class LlmService {
               whereClause.title = { contains: titleContains, mode: 'insensitive' };
             }
 
-            const result = await prisma.task.updateMany({
+            const tasksToUpdate = await prisma.task.findMany({
               where: whereClause,
-              data: {
-                status,
-                completedAt: status === 'COMPLETED' ? new Date() : null
-              }
+              include: { creator: true }
             });
 
-            auditLogs.push(`Updated ${result.count} tasks status to ${status}`);
+            if (status === 'DELEGATED' && assigneeName) {
+              const candidates = await this.resolveAssigneeName(assigneeName);
+              if (candidates.length > 0) {
+                const assignee = candidates[0];
+                for (const t of tasksToUpdate) {
+                  // Update task assignee and status to DELEGATED
+                  await prisma.task.update({
+                    where: { id: t.id },
+                    data: {
+                      assignedToId: assignee.id,
+                      status: 'DELEGATED'
+                    }
+                  });
+
+                  // Update related ACTIVE BotReminders to point to the new assignee
+                  await prisma.botReminder.updateMany({
+                    where: { taskId: t.id, status: 'ACTIVE' },
+                    data: { assignedToId: assignee.id }
+                  });
+
+                  // Create delegation log
+                  const currentAssigneeId = t.assignedToId || t.createdById;
+                  await prisma.taskDelegationLog.create({
+                    data: {
+                      taskId: t.id,
+                      fromUserId: currentAssigneeId,
+                      toUserId: assignee.id,
+                      note: note || 'Delegated via AI agent.'
+                    }
+                  });
+
+                  // Notify new assignee
+                  const assigneeContact = await prisma.userContact.findFirst({
+                    where: { userId: assignee.id, channel: 'WHATSAPP' }
+                  });
+                  if (assigneeContact) {
+                    const rawText = `New task delegated to you by ${senderUserName}: ${t.title}. Note: ${note || 'Delegated'}`;
+                    const notificationMsg = await prisma.botMessage.create({
+                      data: {
+                        direction: 'OUTGOING',
+                        channel: 'WHATSAPP',
+                        toUserId: assignee.id,
+                        toPhone: assigneeContact.phoneNumber,
+                        rawText,
+                        messageType: 'TEXT',
+                        status: 'SENT'
+                      }
+                    });
+                    notifications.push(notificationMsg);
+                  }
+
+                  // Notify creator
+                  const creatorContact = await prisma.userContact.findFirst({
+                    where: { userId: t.createdById, channel: 'WHATSAPP' }
+                  });
+                  if (creatorContact && t.createdById !== senderUserId) {
+                    const rawText = `${senderUserName} delegated task "${t.title}" to ${assignee.name}. Note: ${note || 'Delegated'}`;
+                    const notificationMsg = await prisma.botMessage.create({
+                      data: {
+                        direction: 'OUTGOING',
+                        channel: 'WHATSAPP',
+                        toUserId: t.createdById,
+                        toPhone: creatorContact.phoneNumber,
+                        rawText,
+                        messageType: 'TEXT',
+                        status: 'SENT'
+                      }
+                    });
+                    notifications.push(notificationMsg);
+                  }
+                }
+                auditLogs.push(`Delegated ${tasksToUpdate.length} tasks to ${assignee.name}`);
+              } else {
+                auditLogs.push(`Failed to delegate: Could not resolve assignee "${assigneeName}"`);
+              }
+            } else {
+              const result = await prisma.task.updateMany({
+                where: whereClause,
+                data: {
+                  status,
+                  completedAt: status === 'COMPLETED' ? new Date() : null
+                }
+              });
+
+              // Mark related BotReminders COMPLETED if task is completed
+              if (status === 'COMPLETED') {
+                await prisma.botReminder.updateMany({
+                  where: {
+                    taskId: { in: tasksToUpdate.map(t => t.id) },
+                    status: 'ACTIVE'
+                  },
+                  data: { status: 'COMPLETED' }
+                });
+              }
+
+              // Generate notification to the creator of the task (acknowledgement)
+              for (const t of tasksToUpdate) {
+                const creatorContact = await prisma.userContact.findFirst({
+                  where: { userId: t.createdById, channel: 'WHATSAPP' }
+                });
+                if (creatorContact && t.createdById !== senderUserId) {
+                  const rawText = `${senderUserName} marked task "${t.title}" as ${status}.`;
+                  const notificationMsg = await prisma.botMessage.create({
+                    data: {
+                      direction: 'OUTGOING',
+                      channel: 'WHATSAPP',
+                      toUserId: t.createdById,
+                      toPhone: creatorContact.phoneNumber,
+                      rawText,
+                      messageType: 'TEXT',
+                      status: 'SENT'
+                    }
+                  });
+                  notifications.push(notificationMsg);
+                }
+              }
+
+              auditLogs.push(`Updated ${result.count} tasks status to ${status}`);
+            }
             break;
           }
 
@@ -239,6 +367,7 @@ export class LlmService {
 
   /**
    * Fetches active database records to feed to the LLM context.
+   * Uses a compressed pipe-separated value format to reduce token counts for faster inference.
    */
   private static async getDatabaseContext(): Promise<string> {
     try {
@@ -276,37 +405,39 @@ export class LlmService {
         })
       ]);
 
-      return JSON.stringify({
-        vessels: vessels.map(v => ({
-          name: v.name,
-          type: v.type, // BARGE or TUG
-          status: v.status,
-          location: v.currentLocation,
-          irsIv: v.irsIv // "IV" or "IRS"
-        })),
-        staff: users.map(u => ({
-          name: u.name,
-          role: u.role,
-          department: u.department,
-          phone: u.contacts.map(c => '+' + c.phoneNumber).join(', ') || 'N/A'
-        })),
-        activeTasks: tasks.map(t => ({
-          title: t.title,
-          status: t.status,
-          priority: t.priority,
-          assignee: t.assignee?.name || 'Unassigned'
-        }))
+      let ctx = 'VESSELS:\n';
+      vessels.forEach(v => {
+        ctx += `${v.name}|${v.type}|${v.status}|${v.currentLocation}|${v.irsIv || 'N/A'}\n`;
       });
+
+      ctx += '\nSTAFF:\n';
+      users.forEach(u => {
+        const phone = u.contacts[0]?.phoneNumber ? '+' + u.contacts[0].phoneNumber : 'N/A';
+        ctx += `${u.name}|${u.role}|${u.department || 'N/A'}|${phone}\n`;
+      });
+
+      ctx += '\nACTIVE TASKS:\n';
+      tasks.forEach(t => {
+        const assignee = t.assignee?.name || 'Unassigned';
+        ctx += `${t.title}|${t.status}|${t.priority}|${assignee}\n`;
+      });
+
+      return ctx;
     } catch (err) {
       console.error('[LlmService] Error fetching database context:', err);
-      return '{}';
+      return '';
     }
   }
 
   /**
    * Translates natural language message to standard bot command or answers directly from database context.
    */
-  public static async translateMessage(messageText: string, senderUserId: string): Promise<LlmTranslation> {
+  public static async translateMessage(
+    messageText: string,
+    senderUserId: string,
+    senderUserName: string,
+    senderUserRole: string
+  ): Promise<LlmTranslation> {
     if (!env.LLAMA_API_URL) {
       console.log('[LlmService] LLAMA_API_URL is not configured. Skipping LLM translation.');
       return { isERPRelated: true, extractedCommand: messageText, directResponse: null };
@@ -318,7 +449,14 @@ export class LlmService {
     ]);
 
     const systemPrompt = `You are an intelligent natural language translation and query-answering engine for the Arvind Port & Infra Limited Maritime ERP bot.
-You are given the active database context (including vessels, staff, and active tasks) as JSON below:
+The user you are currently talking to is:
+- Name: ${senderUserName}
+- User ID: ${senderUserId}
+- Role: ${senderUserRole}
+
+Use this identity to resolve personal pronouns (such as "my tasks" or "tasks assigned to me").
+
+You are given the active database context (including vessels, staff, and active tasks) as pipe-separated values below:
 
 DATABASE CONTEXT:
 ${dbContext}
@@ -349,6 +487,7 @@ Available standard bot commands (for action requests):
    - Format: "HELP"
 
 Guidelines:
+- **Personal Queries**: If the user asks about their own tasks (e.g. "what are my tasks", "what tasks do I have", "tasks given to me"), filter the "ACTIVE TASKS" list in the context for tasks where "assignee" matches the current user's name ("${senderUserName}") and return the list in "directResponse".
 - **Task Assignment Flow (REQUIRED)**:
   * To create a task, we need: \`assigneeName\`, \`title\` (what to do), and \`dueDate\` (deadline).
   * If the user asks to assign a task (e.g. "tell Girdhar to buy new pen") but the **deadline (dueDate) is not provided** in either the current message or the recent chat history, **do not** create the task yet. Instead:
@@ -381,7 +520,7 @@ Guidelines for dbOperations:
   2. "createTask":
      - params: { "title": string, "assigneeName": string, "priority": "HIGH"|"MEDIUM"|"LOW", "dueDate"?: "YYYY-MM-DD" }
   3. "updateTask":
-     - params: { "titleContains": string, "status": "PENDING"|"IN_PROGRESS"|"COMPLETED"|"DELEGATED" } (e.g., to complete a task)
+     - params: { "titleContains": string, "status": "PENDING"|"IN_PROGRESS"|"COMPLETED"|"DELEGATED", "assigneeName"?: string, "note"?: string } (to delegate, set status to "DELEGATED", provide the new "assigneeName" and optional "note". To update status or complete, set status accordingly.)
   4. "updateVessel":
      - params: { "name": string, "location": string }
   5. "addStaff":
