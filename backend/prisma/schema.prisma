@@ -86,6 +86,7 @@ model User {
   botMessagesReceived   BotMessage[]            @relation("BotMessageReceiver")
   botReminders          BotReminder[]           @relation("BotReminderAssignee")
   contacts              UserContact[]
+  vesselActivityLogs    VesselActivityLog[]     @relation("ActivityReporter")
 
   @@map("users")
 }
@@ -173,8 +174,9 @@ model Vessel {
   updatedAt       DateTime                @updatedAt @map("updated_at")
   deletedAt       DateTime?               @map("deleted_at")
 
-  locationHistory VesselLocationHistory[]
-  certifications  Certification[]
+  locationHistory  VesselLocationHistory[]
+  certifications   Certification[]
+  activityLogs     VesselActivityLog[]
 
   @@index([type])
   @@index([status])
@@ -388,4 +390,20 @@ model BotReminder {
   @@index([status])
   @@index([nextReminderAt])
   @@map("bot_reminders")
+}
+
+model VesselActivityLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  vesselId      String   @map("vessel_id") @db.Uuid
+  vessel        Vessel   @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  activityType  String   @map("activity_type") @db.VarChar(50)
+  summary       String   @db.Text
+  relatedTaskId String?  @map("related_task_id") @db.Uuid
+  reportedById  String   @map("reported_by_id") @db.Uuid
+  reportedBy    User     @relation("ActivityReporter", fields: [reportedById], references: [id])
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([vesselId])
+  @@index([createdAt])
+  @@map("vessel_activity_logs")
 }

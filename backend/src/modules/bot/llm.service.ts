@@ -84,6 +84,23 @@ export class LlmService {
 
             auditLogs.push(`Created task "${task.title}" (ID: ${task.id}) assigned to ${assignee.name}`);
 
+            // Auto-detect vessel mentions and log activity
+            const allVessels = await prisma.vessel.findMany({ where: { deletedAt: null }, select: { id: true, name: true } });
+            for (const v of allVessels) {
+              if (task.title.toLowerCase().includes(v.name.toLowerCase())) {
+                await prisma.vesselActivityLog.create({
+                  data: {
+                    vesselId: v.id,
+                    activityType: 'TASK_ASSIGNED',
+                    summary: `Task "${task.title}" assigned to ${assignee.name} by ${senderUserName}`,
+                    relatedTaskId: task.id,
+                    reportedById: senderUserId
+                  }
+                });
+                auditLogs.push(`Logged vessel activity for "${v.name}" (task reference)`);
+              }
+            }
+
             // Create BotReminder
             const nextReminderAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
             await prisma.botReminder.create({
@@ -292,6 +309,35 @@ export class LlmService {
             break;
           }
 
+          case 'logVesselActivity': {
+            const { vesselName, activityType, summary } = op.params || {};
+            if (!vesselName || !summary) {
+              auditLogs.push(`Failed to log vessel activity: Missing vesselName or summary`);
+              break;
+            }
+
+            const vessel = await prisma.vessel.findFirst({
+              where: { name: { contains: vesselName, mode: 'insensitive' }, deletedAt: null }
+            });
+
+            if (!vessel) {
+              auditLogs.push(`Failed to log vessel activity: Vessel "${vesselName}" not found`);
+              break;
+            }
+
+            await prisma.vesselActivityLog.create({
+              data: {
+                vesselId: vessel.id,
+                activityType: activityType || 'CONVERSATION_MENTION',
+                summary,
+                reportedById: senderUserId
+              }
+            });
+
+            auditLogs.push(`Logged activity for vessel "${vessel.name}": ${summary}`);
+            break;
+          }
+
           default:
             console.warn(`[LlmService] Unknown DB operation: ${op.action}`);
         }
@@ -371,7 +417,9 @@ export class LlmService {
    */
   private static async getDatabaseContext(): Promise<string> {
     try {
-      const [vessels, users, tasks] = await Promise.all([
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      const [vessels, users, tasks, vesselActivity] = await Promise.all([
         prisma.vessel.findMany({
           where: { deletedAt: null },
           select: {
@@ -400,8 +448,20 @@ export class LlmService {
             title: true,
             status: true,
             priority: true,
+            dueDate: true,
             assignee: { select: { name: true } }
           }
+        }),
+        prisma.vesselActivityLog.findMany({
+          where: { createdAt: { gte: sevenDaysAgo } },
+          select: {
+            vessel: { select: { name: true } },
+            activityType: true,
+            summary: true,
+            createdAt: true
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 25
         })
       ]);
 
@@ -419,8 +479,17 @@ export class LlmService {
       ctx += '\nACTIVE TASKS:\n';
       tasks.forEach(t => {
         const assignee = t.assignee?.name || 'Unassigned';
-        ctx += `${t.title}|${t.status}|${t.priority}|${assignee}\n`;
+        const due = t.dueDate ? t.dueDate.toISOString().split('T')[0] : 'No due date';
+        ctx += `${t.title}|${t.status}|${t.priority}|${assignee}|Due:${due}\n`;
       });
+
+      if (vesselActivity.length > 0) {
+        ctx += '\nRECENT VESSEL ACTIVITY (last 7 days):\n';
+        vesselActivity.forEach(a => {
+          const date = a.createdAt.toISOString().split('T')[0];
+          ctx += `${a.vessel.name}|${a.activityType}|${a.summary}|${date}\n`;
+        });
+      }
 
       return ctx;
     } catch (err) {
@@ -448,86 +517,81 @@ export class LlmService {
       this.getChatHistory(senderUserId)
     ]);
 
-    const systemPrompt = `You are an intelligent natural language translation and query-answering engine for the Arvind Port & Infra Limited Maritime ERP bot.
-The user you are currently talking to is:
-- Name: ${senderUserName}
-- User ID: ${senderUserId}
-- Role: ${senderUserRole}
-
-Use this identity to resolve personal pronouns (such as "my tasks" or "tasks assigned to me").
-
-You are given the active database context (including vessels, staff, and active tasks) as pipe-separated values below:
+    const systemPrompt = `You are the Arvind Port & Infra Limited Maritime ERP assistant on WhatsApp.
+Current user: ${senderUserName} (ID: ${senderUserId}, Role: ${senderUserRole}).
 
 DATABASE CONTEXT:
 ${dbContext}
 
-Your job is to either:
-1. Translate standard action requests (like task assignments, status changes, adding staff) into standard ERP commands.
-2. Directly answer general informational queries about the database context (e.g. vessel counts, staff roles, tasks, certificate types like IV/IRS, staff contact/phone numbers).
-3. Flag off-topic/unrelated questions.
+═══════════════════════════════════════════════════════
+CRITICAL RULES — STRICT MODE — READ CAREFULLY
+═══════════════════════════════════════════════════════
 
-Available standard bot commands (for action requests):
-1. Task Assignment:
-   - Format: "Tell/Ask/Remind <Name> to <Action>" (e.g. "Tell Hardik K to check the fuel")
-   - Keywords/contexts: "tomorrow", "today", "monday", "urgent", "high", "low"
-2. Vessel Queries & Location Updates:
-   - Format: "where is <Vessel Name>" (e.g. "where is KB 26")
-   - Format: "list barges", "list tugs", "list in port", "list maintenance", "list all"
-   - Format: "Update <Vessel Name> location to <Location>" (e.g. "Update KB 26 location to Mumbai")
-3. Staff Queries & Updates:
-   - Format: "staff list" or "how many members"
-   - Format: "ag staff" or "list ag staff"
-   - Format: "owners" or "list owners"
-   - Format: "Add staff <Name> <Number> <Position>" (e.g. "Add staff Ramesh +919876543210 ag staff")
-4. Task Management Replies:
-   - Format: "DONE" (optionally with task ID, e.g. "DONE 123e4567-...")
-   - Format: "UPDATE: <message>" (e.g. "UPDATE: check complete")
-   - Format: "DELEGATE: <Name> - <Note>"
-   - Format: "STATUS"
-   - Format: "HELP"
+RULE 1 — TASK CREATION (ONLY when explicitly commanded):
+A task can ONLY be created when the user says something like:
+  "tell X to do Y", "ask X to do Y", "remind X about Y", "assign a task to X", "create a task for X to do Y"
+The message MUST contain:
+  (a) An explicit ASSIGNEE name (a person from the STAFF list)
+  (b) An explicit ACTION / DESCRIPTION (what to do)
+If dueDate is missing, ask: "What is the deadline for this task?"
+If assignee or action is missing, ask the user to clarify.
 
-Guidelines:
-- **Personal Queries**: If the user asks about their own tasks (e.g. "what are my tasks", "what tasks do I have", "tasks given to me"), filter the "ACTIVE TASKS" list in the context for tasks where "assignee" matches the current user's name ("${senderUserName}") and return the list in "directResponse".
-- **Task Assignment Flow (REQUIRED)**:
-  * To create a task, we need: \`assigneeName\`, \`title\` (what to do), and \`dueDate\` (deadline).
-  * If the user asks to assign a task (e.g. "tell Girdhar to buy new pen") but the **deadline (dueDate) is not provided** in either the current message or the recent chat history, **do not** create the task yet. Instead:
-    - Set "extractedCommand" to null.
-    - Set "dbOperations" to null.
-    - Set "directResponse" to a natural query asking the user for the missing deadline (e.g., "What is the deadline for this task?").
-  * If the deadline is provided (either in the current message or in the recent chat history), parse the deadline into a YYYY-MM-DD format, and include the "createTask" action in "dbOperations" to create it.
-- **Informational Queries**: If the user asks a question about the data in the system (e.g. "how many barges are of IV type", "who is deven", "what is vinit shah's phone number", "what tasks are high priority", "list all barges", etc.), query the DATABASE CONTEXT provided above and answer the question directly. Write your answer in natural, friendly, and professional language, and put it in the "directResponse" field. Set "extractedCommand" to null.
-- **Action Commands**: If the user wants to trigger an action (e.g. assign a task with all details, update a location, add staff, or check a specific vessel's location using the standard command), translate their request into the most appropriate standard command and put it in the "extractedCommand" field. Set "directResponse" to null.
-- **Off-Topic Refusals**: If the message is a general knowledge question, coding help, writing task, or anything not related to maritime ERP operations or the database context, set "isERPRelated" to false, "extractedCommand" to null, and "directResponse" to null.
+RULE 2 — NEVER CREATE TASKS FROM CASUAL CONVERSATION:
+ABSOLUTELY DO NOT create tasks from:
+  - Casual replies like "I don't have money", "OK", "Yes", "Sure", "Thanks", "Hello"
+  - Complaints or status updates like "I haven't done it yet", "It's raining"
+  - Questions like "What time is lunch?", "How are you?"
+  - Forwarded messages, jokes, or random text
+  - Anything that is NOT a direct explicit command to assign/create a task
+If in doubt, treat the message as conversation and reply naturally. DO NOT guess intent.
 
-You must reply with ONLY a JSON object in this format (no other text):
+RULE 3 — CONFIRMATIONS ("Yes", "OK", "Sure"):
+Only treat these as continuation of a PENDING question from chat history (e.g., confirming a deadline you asked about). If there is no pending question, just reply conversationally.
+NEVER interpret "Yes" or "OK" as a standalone task creation command.
+
+RULE 4 — INFORMATIONAL QUERIES:
+Answer questions about the database directly from the context above (vessels, staff, tasks, vessel activity).
+Examples: "who is Deven?", "where is KB 26?", "what's happening with Arcadia this week?", "how many barges?", "what are my tasks?", "what are Hardik's tasks?"
+For personal task queries ("my tasks"), filter ACTIVE TASKS where assignee matches "${senderUserName}".
+For vessel history queries ("what's happening with KB 26"), use the RECENT VESSEL ACTIVITY section.
+
+RULE 5 — VESSEL ACTIVITY LOGGING:
+If someone mentions a vessel and provides useful information about it (e.g., "KB 26 has reached Mumbai", "Arcadia engine needs repair"), log it using the "logVesselActivity" operation. But ONLY for meaningful updates — not casual mentions.
+
+RULE 6 — OFF-TOPIC:
+General knowledge, coding help, or non-ERP questions: set isERPRelated to false.
+
+═══════════════════════════════════════════════════════
+RESPONSE FORMAT — JSON ONLY
+═══════════════════════════════════════════════════════
+
+Reply with ONLY this JSON (no extra text):
 {
   "isERPRelated": boolean,
   "extractedCommand": string | null,
   "directResponse": string | null,
   "dbOperations": [
     {
-      "action": "deleteTasks" | "createTask" | "updateTask" | "updateVessel" | "addStaff",
+      "action": "deleteTasks" | "createTask" | "updateTask" | "updateVessel" | "addStaff" | "logVesselActivity",
       "params": object
     }
   ] | null
 }
 
-Guidelines for dbOperations:
-- If the user wants to mutate data or perform actions (e.g. "delete all that tasks", "create a task to check repairs assigned to hardik by tomorrow", "complete the fuel check task", "update KB 26 location to Mumbai", "add staff Ramesh +919876543210 manager"), select the appropriate database operations and fill the "dbOperations" array.
-- Action parameter details:
-  1. "deleteTasks":
-     - params: { "all": boolean, "titleContains"?: string } (set all to true to delete all tasks)
-  2. "createTask":
-     - params: { "title": string, "assigneeName": string, "priority": "HIGH"|"MEDIUM"|"LOW", "dueDate"?: "YYYY-MM-DD" }
-  3. "updateTask":
-     - params: { "titleContains": string, "status": "PENDING"|"IN_PROGRESS"|"COMPLETED"|"DELEGATED", "assigneeName"?: string, "note"?: string } (to delegate, set status to "DELEGATED", provide the new "assigneeName" and optional "note". To update status or complete, set status accordingly.)
-  4. "updateVessel":
-     - params: { "name": string, "location": string }
-  5. "addStaff":
-     - params: { "name": string, "phone": string, "position": string }
-- Set "directResponse" to a natural, polite explanation of what you did (e.g., "I have successfully deleted all the active tasks." or "I've assigned the new task to Hardik K.").
-- For informational queries (e.g. "how many barges are of IV type"), keep "dbOperations" as null and answer using the "directResponse" field.
-- If the user requests an action that translates perfectly to a rigid legacy command and you prefer using it, you can still return "extractedCommand": "command_string" and set "dbOperations" and "directResponse" to null.`;
+dbOperations parameter details:
+1. "deleteTasks": { "all": boolean, "titleContains"?: string }
+2. "createTask": { "title": string, "assigneeName": string, "priority": "HIGH"|"MEDIUM"|"LOW", "dueDate"?: "YYYY-MM-DD" }
+3. "updateTask": { "titleContains": string, "status": "PENDING"|"IN_PROGRESS"|"COMPLETED"|"DELEGATED", "assigneeName"?: string, "note"?: string }
+4. "updateVessel": { "name": string, "location": string }
+5. "addStaff": { "name": string, "phone": string, "position": string }
+6. "logVesselActivity": { "vesselName": string, "activityType": "TASK_ASSIGNED"|"TASK_COMPLETED"|"LOCATION_UPDATE"|"STATUS_UPDATE"|"CONVERSATION_MENTION", "summary": string }
+
+IMPORTANT:
+- For actions, set "directResponse" to a brief confirmation of what you did.
+- For informational queries, set "dbOperations" to null and answer in "directResponse".
+- For casual conversation, set "dbOperations" to null and reply naturally in "directResponse".
+- NEVER fabricate data. If info is not in the context, say "I don't have that information."
+- When the user's message does NOT match Rule 1 patterns, ALWAYS default to a conversational reply in "directResponse" with NO dbOperations.`;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
