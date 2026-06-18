@@ -66,19 +66,22 @@ You must reply with ONLY a JSON object in this format (no other text, no markdow
             { role: 'system', content: systemPrompt },
             { role: 'user', content: messageText }
           ],
-          temperature: 0.1, // low temperature for deterministic commands
-          response_format: { type: 'json_object' } // Request JSON output if supported by model
+          stream: false,
+          format: 'json',
+          options: {
+            temperature: 0.1
+          }
         })
       });
 
       if (!response.ok) {
         const errText = await response.text();
-        console.error(`[LlmService] Llama API error: ${response.status} - ${errText}`);
+        console.error(`[LlmService] Ollama API error: ${response.status} - ${errText}`);
         return { isERPRelated: true, extractedCommand: messageText };
       }
 
       const resJson: any = await response.json();
-      const rawContent = resJson.choices?.[0]?.message?.content || '';
+      const rawContent = resJson.message?.content || '';
       
       console.log(`[LlmService] Raw response content: "${rawContent}"`);
 
