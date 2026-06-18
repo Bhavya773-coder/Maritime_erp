@@ -422,8 +422,10 @@ export class WhatsAppService {
           };
         } else if (translation.directResponse) {
           // Execute database operations if requested by AI
+          let notifications: any[] = [];
           if (translation.dbOperations && translation.dbOperations.length > 0) {
-            await LlmService.executeDbOperations(translation.dbOperations, senderUser.id);
+            const opResult = await LlmService.executeDbOperations(translation.dbOperations, senderUser.id, senderUser.name);
+            notifications = opResult.notifications;
           }
 
           // Log incoming BotMessage with original text
@@ -441,10 +443,20 @@ export class WhatsAppService {
           });
 
           const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, translation.directResponse);
+
+          // Dispatch and log generated notifications
+          const outgoingNotifications: any[] = [];
+          for (const n of notifications) {
+            if (n.toPhone) {
+              const outgoingNotif = await this.sendWhatsAppText(n.toPhone, n.rawText);
+              outgoingNotifications.push(outgoingNotif);
+            }
+          }
+
           return {
             status: 'success',
             message: translation.directResponse,
-            outgoing: [outgoing],
+            outgoing: [outgoing, ...outgoingNotifications],
           };
         } else if (translation.extractedCommand) {
           console.log(`[LlmService] Natural language: "${textBody}" -> Command: "${translation.extractedCommand}"`);

@@ -18,9 +18,11 @@ export class LlmService {
    */
   public static async executeDbOperations(
     operations: any[],
-    senderUserId: string
-  ): Promise<string[]> {
+    senderUserId: string,
+    senderUserName: string
+  ): Promise<{ auditLogs: string[]; notifications: any[] }> {
     const auditLogs: string[] = [];
+    const notifications: any[] = [];
 
     for (const op of operations) {
       try {
@@ -81,6 +83,27 @@ export class LlmService {
             });
 
             auditLogs.push(`Created task "${task.title}" (ID: ${task.id}) assigned to ${assignee.name}`);
+
+            // Find WhatsApp contact of assignee to send notification
+            const assigneeContact = await prisma.userContact.findFirst({
+              where: { userId: assignee.id, channel: 'WHATSAPP', isVerified: true }
+            });
+
+            if (assigneeContact) {
+              const rawText = `New task from ${senderUserName}: ${task.title}. Priority: ${task.priority}. Due: ${task.dueDate.toISOString().split('T')[0]}.`;
+              const notificationMsg = await prisma.botMessage.create({
+                data: {
+                  direction: 'OUTGOING',
+                  channel: 'WHATSAPP',
+                  toUserId: assignee.id,
+                  toPhone: assigneeContact.phoneNumber,
+                  rawText,
+                  messageType: 'TEXT',
+                  status: 'SENT'
+                }
+              });
+              notifications.push(notificationMsg);
+            }
             break;
           }
 
@@ -161,7 +184,7 @@ export class LlmService {
       });
     }
 
-    return auditLogs;
+    return { auditLogs, notifications };
   }
 
   /**
@@ -326,8 +349,15 @@ Available standard bot commands (for action requests):
    - Format: "HELP"
 
 Guidelines:
+- **Task Assignment Flow (REQUIRED)**:
+  * To create a task, we need: \`assigneeName\`, \`title\` (what to do), and \`dueDate\` (deadline).
+  * If the user asks to assign a task (e.g. "tell Girdhar to buy new pen") but the **deadline (dueDate) is not provided** in either the current message or the recent chat history, **do not** create the task yet. Instead:
+    - Set "extractedCommand" to null.
+    - Set "dbOperations" to null.
+    - Set "directResponse" to a natural query asking the user for the missing deadline (e.g., "What is the deadline for this task?").
+  * If the deadline is provided (either in the current message or in the recent chat history), parse the deadline into a YYYY-MM-DD format, and include the "createTask" action in "dbOperations" to create it.
 - **Informational Queries**: If the user asks a question about the data in the system (e.g. "how many barges are of IV type", "who is deven", "what is vinit shah's phone number", "what tasks are high priority", "list all barges", etc.), query the DATABASE CONTEXT provided above and answer the question directly. Write your answer in natural, friendly, and professional language, and put it in the "directResponse" field. Set "extractedCommand" to null.
-- **Action Commands**: If the user wants to trigger an action (e.g. assign a task, update a location, add staff, or check a specific vessel's location using the standard command), translate their request into the most appropriate standard command and put it in the "extractedCommand" field. Set "directResponse" to null.
+- **Action Commands**: If the user wants to trigger an action (e.g. assign a task with all details, update a location, add staff, or check a specific vessel's location using the standard command), translate their request into the most appropriate standard command and put it in the "extractedCommand" field. Set "directResponse" to null.
 - **Off-Topic Refusals**: If the message is a general knowledge question, coding help, writing task, or anything not related to maritime ERP operations or the database context, set "isERPRelated" to false, "extractedCommand" to null, and "directResponse" to null.
 
 You must reply with ONLY a JSON object in this format (no other text):
@@ -344,10 +374,10 @@ You must reply with ONLY a JSON object in this format (no other text):
 }
 
 Guidelines for dbOperations:
-- If the user wants to mutate data or perform actions (e.g. "delete all that tasks", "create a task to check repairs assigned to hardik", "complete the fuel check task", "update KB 26 location to Mumbai", "add staff Ramesh +919876543210 manager"), select the appropriate database operations and fill the "dbOperations" array.
+- If the user wants to mutate data or perform actions (e.g. "delete all that tasks", "create a task to check repairs assigned to hardik by tomorrow", "complete the fuel check task", "update KB 26 location to Mumbai", "add staff Ramesh +919876543210 manager"), select the appropriate database operations and fill the "dbOperations" array.
 - Action parameter details:
   1. "deleteTasks":
-     - params: { "all": boolean } (set all to true to delete all tasks)
+     - params: { "all": boolean, "titleContains"?: string } (set all to true to delete all tasks)
   2. "createTask":
      - params: { "title": string, "assigneeName": string, "priority": "HIGH"|"MEDIUM"|"LOW", "dueDate"?: "YYYY-MM-DD" }
   3. "updateTask":
