@@ -7,6 +7,7 @@ import { BotStaffService } from './bot.staff-service';
 import { BotReplyService } from './bot.reply-service';
 import { BotFleetParser } from './bot.fleet-parser';
 import { BotFleetService } from './bot.fleet-service';
+import { LlmService } from './llm.service';
 
 export class WhatsAppService {
   /**
@@ -356,6 +357,8 @@ export class WhatsAppService {
     providerMessageId: string
   ): Promise<any> {
     const cleanPhone = this.normalizePhone(fromPhone);
+    const originalTextBody = textBody;
+    let currentText = textBody;
 
     // Find contact mapping
     const contact = await prisma.userContact.findFirst({
@@ -378,8 +381,43 @@ export class WhatsAppService {
           name: `Unregistered (${cleanPhone})`,
         };
 
+    // LLM translation and scope validation
+    if (env.LLAMA_API_URL) {
+      try {
+        const translation = await LlmService.translateMessage(textBody);
+        if (!translation.isERPRelated) {
+          // Log incoming BotMessage with original text
+          await prisma.botMessage.create({
+            data: {
+              direction: 'INCOMING',
+              channel: BotChannel.WHATSAPP,
+              fromUserId: senderUser.id,
+              fromPhone: cleanPhone,
+              rawText: originalTextBody,
+              messageType: 'TEXT',
+              status: 'RECEIVED',
+              providerMessageId,
+            },
+          });
+
+          const replyText = "I am an ERP assistant and can only help with ERP tasks like scheduling, vessel updates, and staff queries. Please ask an office-related question.";
+          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+          return {
+            status: 'failed',
+            message: replyText,
+            outgoing: [outgoing],
+          };
+        } else if (translation.extractedCommand) {
+          console.log(`[LlmService] Natural language: "${textBody}" -> Command: "${translation.extractedCommand}"`);
+          currentText = translation.extractedCommand;
+        }
+      } catch (err) {
+        console.error('[LlmService] Error during translation, falling back to raw message:', err);
+      }
+    }
+
     // Check if it is a menu/buttons/start/hi/hello/hey command
-    const cleanMsg = textBody.trim().toLowerCase();
+    const cleanMsg = currentText.trim().toLowerCase();
     if (cleanMsg === 'menu' || cleanMsg === 'buttons' || cleanMsg === 'start' || cleanMsg === 'hi' || cleanMsg === 'hello' || cleanMsg === 'hey') {
       // 1. Log incoming BotMessage
       await prisma.botMessage.create({
@@ -388,7 +426,7 @@ export class WhatsAppService {
           channel: BotChannel.WHATSAPP,
           fromUserId: senderUser.id,
           fromPhone: cleanPhone,
-          rawText: textBody,
+          rawText: originalTextBody,
           messageType: 'TEXT',
           status: 'RECEIVED',
           providerMessageId,
@@ -412,7 +450,7 @@ export class WhatsAppService {
     }
 
     // Check if it is an ADD STAFF command
-    const addStaffMatch = textBody.trim().match(/^add\s+staff\s+(.+?)\s+(\+?\d[\d\s-]+)\s+(.+)$/i);
+    const addStaffMatch = currentText.trim().match(/^add\s+staff\s+(.+?)\s+(\+?\d[\d\s-]+)\s+(.+)$/i);
     if (addStaffMatch) {
       // 1. Log incoming BotMessage
       await prisma.botMessage.create({
@@ -421,7 +459,7 @@ export class WhatsAppService {
           channel: BotChannel.WHATSAPP,
           fromUserId: senderUser.id,
           fromPhone: cleanPhone,
-          rawText: textBody,
+          rawText: originalTextBody,
           messageType: 'TEXT',
           status: 'RECEIVED',
           providerMessageId,
@@ -462,7 +500,7 @@ export class WhatsAppService {
           channel: BotChannel.WHATSAPP,
           fromUserId: senderUser.id,
           fromPhone: cleanPhone,
-          rawText: textBody,
+          rawText: originalTextBody,
           messageType: 'TEXT',
           status: 'RECEIVED',
           providerMessageId,
@@ -500,7 +538,7 @@ export class WhatsAppService {
           channel: BotChannel.WHATSAPP,
           fromUserId: senderUser.id,
           fromPhone: cleanPhone,
-          rawText: textBody,
+          rawText: originalTextBody,
           messageType: 'TEXT',
           status: 'RECEIVED',
           providerMessageId,
@@ -538,7 +576,7 @@ export class WhatsAppService {
           channel: BotChannel.WHATSAPP,
           fromUserId: senderUser.id,
           fromPhone: cleanPhone,
-          rawText: textBody,
+          rawText: originalTextBody,
           messageType: 'TEXT',
           status: 'RECEIVED',
           providerMessageId,
@@ -567,7 +605,7 @@ export class WhatsAppService {
     }
 
     // Check if it is a reply command
-    const replyCommand = BotReplyParser.parse(textBody);
+    const replyCommand = BotReplyParser.parse(currentText);
     if (replyCommand) {
       // 1. Log incoming BotMessage
       await prisma.botMessage.create({
@@ -576,7 +614,7 @@ export class WhatsAppService {
           channel: BotChannel.WHATSAPP,
           fromUserId: senderUser.id,
           fromPhone: cleanPhone,
-          rawText: textBody,
+          rawText: originalTextBody,
           messageType: 'TEXT',
           status: 'RECEIVED',
           providerMessageId,
@@ -592,7 +630,7 @@ export class WhatsAppService {
     }
 
     // Check if it is a fleet info query
-    const fleetQuery = BotFleetParser.parse(textBody);
+    const fleetQuery = BotFleetParser.parse(currentText);
     if (fleetQuery) {
       // Log incoming BotMessage
       await prisma.botMessage.create({
@@ -601,7 +639,7 @@ export class WhatsAppService {
           channel: BotChannel.WHATSAPP,
           fromUserId: senderUser.id,
           fromPhone: cleanPhone,
-          rawText: textBody,
+          rawText: originalTextBody,
           messageType: 'TEXT',
           status: 'RECEIVED',
           providerMessageId,
@@ -627,7 +665,7 @@ export class WhatsAppService {
         channel: BotChannel.WHATSAPP,
         fromUserId: senderUser.id,
         fromPhone: cleanPhone,
-        rawText: textBody,
+        rawText: originalTextBody,
         messageType: 'TEXT',
         status: 'RECEIVED',
         providerMessageId,
@@ -635,7 +673,7 @@ export class WhatsAppService {
     });
 
     // Call processCommand in Bot Core
-    const result = await BotService.processCommand(textBody, senderUser, {
+    const result = await BotService.processCommand(currentText, senderUser, {
       channel: BotChannel.WHATSAPP,
       fromPhone: cleanPhone,
       providerMessageId,

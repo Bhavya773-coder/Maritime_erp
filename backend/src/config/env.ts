@@ -17,6 +17,9 @@ const envSchema = z.object({
   WHATSAPP_API_VERSION: z.string().default('v20.0'),
   WHATSAPP_TEMPLATE_NAME: z.string().optional(),
   WHATSAPP_TEMPLATE_LANG: z.string().default('en'),
+  LLAMA_API_URL: z.string().optional(),
+  LLAMA_MODEL_NAME: z.string().default('llama3'),
+  LLAMA_API_KEY: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

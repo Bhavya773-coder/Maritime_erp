@@ -21,6 +21,9 @@ const envSchema = zod_1.z.object({
     WHATSAPP_API_VERSION: zod_1.z.string().default('v20.0'),
     WHATSAPP_TEMPLATE_NAME: zod_1.z.string().optional(),
     WHATSAPP_TEMPLATE_LANG: zod_1.z.string().default('en'),
+    LLAMA_API_URL: zod_1.z.string().optional(),
+    LLAMA_MODEL_NAME: zod_1.z.string().default('llama3'),
+    LLAMA_API_KEY: zod_1.z.string().optional(),
 });
 const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {
