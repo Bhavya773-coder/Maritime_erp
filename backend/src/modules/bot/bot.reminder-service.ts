@@ -20,7 +20,16 @@ export class BotReminderService {
         },
       },
       include: {
-        task: true,
+        task: {
+          include: {
+            creator: true,
+            assignee: true,
+            comments: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            },
+          },
+        },
         assignedTo: true,
       },
     });
@@ -43,36 +52,53 @@ export class BotReminderService {
         continue;
       }
 
-      // Find if assignee has a verified UserContact for WHATSAPP
-      const contact = await prisma.userContact.findFirst({
+      const task = reminder.task;
+      const isOverdue = task.dueDate && new Date(task.dueDate) < now;
+      const dueDateStr = task.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : 'No due date';
+      const lastComment = task.comments[0]?.content || null;
+      const overdueLabel = isOverdue ? '⚠️ OVERDUE' : '⏰ Pending';
+
+      // --- Send reminder to ASSIGNEE ---
+      const assigneeContact = await prisma.userContact.findFirst({
         where: {
           userId: reminder.assignedToId,
           channel: BotChannel.WHATSAPP,
         },
       });
 
-      if (!contact) {
-        // No contact to send to, skip but update nextReminderAt to prevent infinite looping
-        const nextRem = new Date(now.getTime() + reminder.frequencyHours * 60 * 60 * 1000);
-        await prisma.botReminder.update({
-          where: { id: reminder.id },
-          data: {
-            nextReminderAt: nextRem,
-            lastReminderAt: now,
-          },
-        });
-        skipped++;
-        continue;
+      if (assigneeContact) {
+        let assigneeText = `${overdueLabel}: "${task.title}" (Due: ${dueDateStr}). Reply DONE, UPDATE: <message>, or DELEGATE: <name>.`;
+        await WhatsAppService.sendWhatsAppAndLog(
+          reminder.assignedToId,
+          assigneeContact.phoneNumber,
+          assigneeText
+        );
+        sent++;
       }
 
-      // Send WhatsApp reminder
-      const reminderText = `Reminder: Task pending — ${reminder.task.title}. Reply DONE or UPDATE: message.`;
-      
-      await WhatsAppService.sendWhatsAppAndLog(
-        reminder.assignedToId,
-        contact.phoneNumber,
-        reminderText
-      );
+      // --- Send reminder to CREATOR (only if creator != assignee) ---
+      if (task.createdById !== reminder.assignedToId) {
+        const creatorContact = await prisma.userContact.findFirst({
+          where: {
+            userId: task.createdById,
+            channel: BotChannel.WHATSAPP,
+          },
+        });
+
+        if (creatorContact) {
+          const assigneeName = task.assignee?.name || 'Unknown';
+          let creatorText = `${overdueLabel}: Task "${task.title}" assigned to ${assigneeName} (Due: ${dueDateStr}) is still not done.`;
+          if (lastComment) {
+            creatorText += `\nLast update: "${lastComment}"`;
+          }
+          await WhatsAppService.sendWhatsAppAndLog(
+            task.createdById,
+            creatorContact.phoneNumber,
+            creatorText
+          );
+          sent++;
+        }
+      }
 
       // Update reminder timestamps
       const nextRem = new Date(now.getTime() + reminder.frequencyHours * 60 * 60 * 1000);
@@ -84,7 +110,9 @@ export class BotReminderService {
         },
       });
 
-      sent++;
+      if (!assigneeContact) {
+        skipped++;
+      }
     }
 
     return {

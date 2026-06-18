@@ -246,13 +246,28 @@ export class LlmService {
                 });
               }
 
+              // Save the note as a TaskComment so it's not lost
+              if (note) {
+                for (const t of tasksToUpdate) {
+                  await prisma.taskComment.create({
+                    data: {
+                      taskId: t.id,
+                      userId: senderUserId,
+                      content: note
+                    }
+                  });
+                }
+              }
+
               // Generate notification to the creator of the task (acknowledgement)
               for (const t of tasksToUpdate) {
                 const creatorContact = await prisma.userContact.findFirst({
                   where: { userId: t.createdById, channel: 'WHATSAPP' }
                 });
                 if (creatorContact && t.createdById !== senderUserId) {
-                  const rawText = `${senderUserName} marked task "${t.title}" as ${status}.`;
+                  // Include the note/reason in the creator notification
+                  const noteText = note ? `\nReason: ${note}` : '';
+                  const rawText = `${senderUserName} updated task "${t.title}" → ${status}.${noteText}`;
                   const notificationMsg = await prisma.botMessage.create({
                     data: {
                       direction: 'OUTGOING',
@@ -268,7 +283,7 @@ export class LlmService {
                 }
               }
 
-              auditLogs.push(`Updated ${result.count} tasks status to ${status}`);
+              auditLogs.push(`Updated ${result.count} tasks status to ${status}${note ? ' (Note: ' + note + ')' : ''}`);
             }
             break;
           }
@@ -560,6 +575,9 @@ If someone mentions a vessel and provides useful information about it (e.g., "KB
 
 RULE 6 — OFF-TOPIC:
 General knowledge, coding help, or non-ERP questions: set isERPRelated to false.
+
+RULE 7 — TASK UPDATES & REASONS:
+If a user replies to a task with a status update, issue, or reason (e.g., "I don't have funds", "The part is missing", "Done but waiting for approval"), YOU MUST use the "updateTask" operation and put their exact reason in the "note" field so the creator is notified of WHY it is pending or updated.
 
 ═══════════════════════════════════════════════════════
 RESPONSE FORMAT — JSON ONLY
