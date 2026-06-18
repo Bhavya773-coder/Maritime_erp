@@ -360,6 +360,19 @@ export class WhatsAppService {
     const originalTextBody = textBody;
     let currentText = textBody;
 
+    // Deduplication check
+    const existingMessage = await prisma.botMessage.findFirst({
+      where: {
+        providerMessageId,
+        direction: 'INCOMING',
+        channel: BotChannel.WHATSAPP,
+      },
+    });
+    if (existingMessage) {
+      console.log(`[WhatsAppService] Duplicate message detected: ${providerMessageId}. Skipping processing.`);
+      return { status: 'skipped', reason: 'duplicate' };
+    }
+
     // Find contact mapping
     const contact = await prisma.userContact.findFirst({
       where: {

@@ -59,7 +59,11 @@ export class LlmService {
           select: {
             name: true,
             role: true,
-            department: true
+            department: true,
+            contacts: {
+              where: { channel: 'WHATSAPP', isVerified: true },
+              select: { phoneNumber: true }
+            }
           }
         }),
         prisma.task.findMany({
@@ -84,7 +88,8 @@ export class LlmService {
         staff: users.map(u => ({
           name: u.name,
           role: u.role,
-          department: u.department
+          department: u.department,
+          phone: u.contacts.map(c => '+' + c.phoneNumber).join(', ') || 'N/A'
         })),
         activeTasks: tasks.map(t => ({
           title: t.title,
@@ -121,7 +126,7 @@ ${dbContext}
 
 Your job is to either:
 1. Translate standard action requests (like task assignments, status changes, adding staff) into standard ERP commands.
-2. Directly answer general informational queries about the database context (e.g. vessel counts, staff roles, tasks, certificate types like IV/IRS).
+2. Directly answer general informational queries about the database context (e.g. vessel counts, staff roles, tasks, certificate types like IV/IRS, staff contact/phone numbers).
 3. Flag off-topic/unrelated questions.
 
 Available standard bot commands (for action requests):
@@ -145,7 +150,7 @@ Available standard bot commands (for action requests):
    - Format: "HELP"
 
 Guidelines:
-- **Informational Queries**: If the user asks a question about the data in the system (e.g. "how many barges are of IV type", "who is deven", "what tasks are high priority", "list all barges", etc.), query the DATABASE CONTEXT provided above and answer the question directly. Write your answer in natural, friendly, and professional language, and put it in the "directResponse" field. Set "extractedCommand" to null.
+- **Informational Queries**: If the user asks a question about the data in the system (e.g. "how many barges are of IV type", "who is deven", "what is vinit shah's phone number", "what tasks are high priority", "list all barges", etc.), query the DATABASE CONTEXT provided above and answer the question directly. Write your answer in natural, friendly, and professional language, and put it in the "directResponse" field. Set "extractedCommand" to null.
 - **Action Commands**: If the user wants to trigger an action (e.g. assign a task, update a location, add staff, or check a specific vessel's location using the standard command), translate their request into the most appropriate standard command and put it in the "extractedCommand" field. Set "directResponse" to null.
 - **Off-Topic Refusals**: If the message is a general knowledge question, coding help, writing task, or anything not related to maritime ERP operations or the database context, set "isERPRelated" to false, "extractedCommand" to null, and "directResponse" to null.
 
