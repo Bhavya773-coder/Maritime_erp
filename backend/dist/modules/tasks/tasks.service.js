@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -192,6 +225,32 @@ class TasksService {
                     note: 'Initial assignment',
                 },
             });
+            // Create BotReminder
+            const nextReminderAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+            await db_1.default.botReminder.create({
+                data: {
+                    taskId: task.id,
+                    assignedToId: task.assignedToId,
+                    reminderType: 'TASK_PENDING',
+                    frequencyHours: 24,
+                    nextReminderAt,
+                    status: 'ACTIVE',
+                },
+            });
+            // Send WhatsApp notification immediately
+            try {
+                const assigneeContact = await db_1.default.userContact.findFirst({
+                    where: { userId: task.assignedToId, channel: 'WHATSAPP' },
+                });
+                if (assigneeContact) {
+                    const { WhatsAppService } = await Promise.resolve().then(() => __importStar(require('../bot/whatsapp.service')));
+                    const rawText = `New task from ${creator.name}: ${task.title}. Priority: ${task.priority}. Due: ${task.dueDate.toISOString().split('T')[0]}.`;
+                    await WhatsAppService.sendWhatsAppAndLog(task.assignedToId, assigneeContact.phoneNumber, rawText);
+                }
+            }
+            catch (err) {
+                console.error('[TasksService] Error sending task creation WhatsApp:', err);
+            }
         }
         // Log to AuditLog
         await db_1.default.auditLog.create({
@@ -286,6 +345,28 @@ class TasksService {
                 assignee: { select: { id: true, name: true, email: true } },
             },
         });
+        // If status is COMPLETED, mark related BotReminders COMPLETED
+        if (status === 'COMPLETED') {
+            await db_1.default.botReminder.updateMany({
+                where: { taskId: id, status: 'ACTIVE' },
+                data: { status: 'COMPLETED' },
+            });
+        }
+        // Send WhatsApp acknowledgement to creator
+        try {
+            const creatorContact = await db_1.default.userContact.findFirst({
+                where: { userId: updatedTask.createdById, channel: 'WHATSAPP' }
+            });
+            // Only notify if updating user is not the creator
+            if (creatorContact && updatedTask.createdById !== user.id) {
+                const { WhatsAppService } = await Promise.resolve().then(() => __importStar(require('../bot/whatsapp.service')));
+                const rawText = `${user.name} marked task "${updatedTask.title}" as ${status}.`;
+                await WhatsAppService.sendWhatsAppAndLog(updatedTask.createdById, creatorContact.phoneNumber, rawText);
+            }
+        }
+        catch (err) {
+            console.error('[TasksService] Error sending task status update WhatsApp:', err);
+        }
         // Write to AuditLog
         await db_1.default.auditLog.create({
             data: {
@@ -345,6 +426,34 @@ class TasksService {
                 status: client_1.TaskStatus.DELEGATED,
             },
         });
+        // Update ACTIVE bot reminders to point to the new assignee
+        await db_1.default.botReminder.updateMany({
+            where: { taskId: id, status: 'ACTIVE' },
+            data: { assignedToId: targetUserId },
+        });
+        // Send WhatsApp notification to new assignee and acknowledgement to creator
+        try {
+            const { WhatsAppService } = await Promise.resolve().then(() => __importStar(require('../bot/whatsapp.service')));
+            // 1. Notify new assignee
+            const assigneeContact = await db_1.default.userContact.findFirst({
+                where: { userId: targetUserId, channel: 'WHATSAPP' }
+            });
+            if (assigneeContact) {
+                const assigneeText = `New task delegated to you by ${user.name}: ${task.title}. Note: ${note || 'Delegated'}`;
+                await WhatsAppService.sendWhatsAppAndLog(targetUserId, assigneeContact.phoneNumber, assigneeText);
+            }
+            // 2. Notify creator
+            const creatorContact = await db_1.default.userContact.findFirst({
+                where: { userId: task.createdById, channel: 'WHATSAPP' }
+            });
+            if (creatorContact && task.createdById !== user.id) {
+                const creatorText = `${user.name} delegated task "${task.title}" to ${targetUser.name}. Note: ${note || 'Delegated'}`;
+                await WhatsAppService.sendWhatsAppAndLog(task.createdById, creatorContact.phoneNumber, creatorText);
+            }
+        }
+        catch (err) {
+            console.error('[TasksService] Error sending delegation WhatsApp:', err);
+        }
         // Write to AuditLog
         await db_1.default.auditLog.create({
             data: {

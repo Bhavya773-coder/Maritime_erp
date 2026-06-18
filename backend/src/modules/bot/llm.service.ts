@@ -121,18 +121,13 @@ export class LlmService {
 
             if (assigneeContact) {
               const rawText = `New task from ${senderUserName}: ${task.title}. Priority: ${task.priority}. Due: ${task.dueDate.toISOString().split('T')[0]}.`;
-              const notificationMsg = await prisma.botMessage.create({
-                data: {
-                  direction: 'OUTGOING',
-                  channel: 'WHATSAPP',
-                  toUserId: assignee.id,
-                  toPhone: assigneeContact.phoneNumber,
-                  rawText,
-                  messageType: 'TEXT',
-                  status: 'SENT'
-                }
+              notifications.push({
+                toUserId: assignee.id,
+                toPhone: assigneeContact.phoneNumber,
+                rawText,
+                messageType: 'INTERACTIVE_BUTTON',
+                taskId: task.id
               });
-              notifications.push(notificationMsg);
             }
             break;
           }
@@ -182,24 +177,20 @@ export class LlmService {
                     }
                   });
 
-                  // Notify new assignee
+                  // Find WhatsApp contact of assignee to send notification
                   const assigneeContact = await prisma.userContact.findFirst({
                     where: { userId: assignee.id, channel: 'WHATSAPP' }
                   });
+
                   if (assigneeContact) {
                     const rawText = `New task delegated to you by ${senderUserName}: ${t.title}. Note: ${note || 'Delegated'}`;
-                    const notificationMsg = await prisma.botMessage.create({
-                      data: {
-                        direction: 'OUTGOING',
-                        channel: 'WHATSAPP',
-                        toUserId: assignee.id,
-                        toPhone: assigneeContact.phoneNumber,
-                        rawText,
-                        messageType: 'TEXT',
-                        status: 'SENT'
-                      }
+                    notifications.push({
+                      toUserId: assignee.id,
+                      toPhone: assigneeContact.phoneNumber,
+                      rawText,
+                      messageType: 'INTERACTIVE_BUTTON',
+                      taskId: t.id
                     });
-                    notifications.push(notificationMsg);
                   }
 
                   // Notify creator
@@ -208,18 +199,12 @@ export class LlmService {
                   });
                   if (creatorContact && t.createdById !== senderUserId) {
                     const rawText = `${senderUserName} delegated task "${t.title}" to ${assignee.name}. Note: ${note || 'Delegated'}`;
-                    const notificationMsg = await prisma.botMessage.create({
-                      data: {
-                        direction: 'OUTGOING',
-                        channel: 'WHATSAPP',
-                        toUserId: t.createdById,
-                        toPhone: creatorContact.phoneNumber,
-                        rawText,
-                        messageType: 'TEXT',
-                        status: 'SENT'
-                      }
+                    notifications.push({
+                      toUserId: t.createdById,
+                      toPhone: creatorContact.phoneNumber,
+                      rawText,
+                      messageType: 'TEXT'
                     });
-                    notifications.push(notificationMsg);
                   }
                 }
                 auditLogs.push(`Delegated ${tasksToUpdate.length} tasks to ${assignee.name}`);
@@ -268,18 +253,12 @@ export class LlmService {
                   // Include the note/reason in the creator notification
                   const noteText = note ? `\nReason: ${note}` : '';
                   const rawText = `${senderUserName} updated task "${t.title}" → ${status}.${noteText}`;
-                  const notificationMsg = await prisma.botMessage.create({
-                    data: {
-                      direction: 'OUTGOING',
-                      channel: 'WHATSAPP',
-                      toUserId: t.createdById,
-                      toPhone: creatorContact.phoneNumber,
-                      rawText,
-                      messageType: 'TEXT',
-                      status: 'SENT'
-                    }
+                  notifications.push({
+                    toUserId: t.createdById,
+                    toPhone: creatorContact.phoneNumber,
+                    rawText,
+                    messageType: 'TEXT'
                   });
-                  notifications.push(notificationMsg);
                 }
               }
 

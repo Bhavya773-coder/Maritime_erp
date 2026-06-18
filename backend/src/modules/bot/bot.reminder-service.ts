@@ -67,11 +67,12 @@ export class BotReminderService {
       });
 
       if (assigneeContact) {
-        let assigneeText = `${overdueLabel}: "${task.title}" (Due: ${dueDateStr}). Reply DONE, UPDATE: <message>, or DELEGATE: <name>.`;
-        await WhatsAppService.sendWhatsAppAndLog(
+        let assigneeText = `${overdueLabel}: "${task.title}" (Due: ${dueDateStr}).`;
+        await WhatsAppService.sendWhatsAppTaskButtonsAndLog(
           reminder.assignedToId,
           assigneeContact.phoneNumber,
-          assigneeText
+          assigneeText,
+          task.id
         );
         sent++;
       }

@@ -303,6 +303,42 @@ export class WhatsAppService {
   }
 
   /**
+   * Send WhatsApp task action buttons (Done, Update, Delegate) and log as outgoing BotMessage
+   */
+  public static async sendWhatsAppTaskButtonsAndLog(
+    toUserId: string | null,
+    toPhone: string,
+    bodyText: string,
+    taskId: string
+  ): Promise<any> {
+    const cleanPhone = this.normalizePhone(toPhone);
+    const isSimulated = !env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID;
+
+    const buttons = [
+      { id: `task_done:${taskId}`, title: '✅ Done' },
+      { id: `task_update:${taskId}`, title: '✏️ Update' },
+      { id: `task_delegate:${taskId}`, title: '🔁 Delegate' }
+    ];
+
+    await this.sendWhatsAppButtons(cleanPhone, bodyText, buttons);
+
+    const status = isSimulated ? 'SIMULATED' : 'SENT';
+    const logText = `${bodyText}\n[Task Buttons: Done | Update | Delegate]`;
+
+    return await prisma.botMessage.create({
+      data: {
+        direction: 'OUTGOING',
+        channel: BotChannel.WHATSAPP,
+        toUserId,
+        toPhone: cleanPhone,
+        rawText: logText,
+        messageType: 'INTERACTIVE_BUTTON',
+        status,
+      },
+    });
+  }
+
+  /**
    * Meta Webhook verification
    */
   public static verifyWebhook(mode: string, verifyToken: string, challenge: string): string | null {
@@ -324,21 +360,24 @@ export class WhatsAppService {
             if (value && value.messages) {
               for (const msg of value.messages) {
                 let textBody = '';
+                let buttonId = '';
                 const fromPhone = msg.from;
                 const messageId = msg.id;
 
                 if (msg.type === 'text' && msg.text && msg.text.body) {
                   textBody = msg.text.body;
                 } else if (msg.type === 'interactive' && msg.interactive) {
-                  if (msg.interactive.button_reply && msg.interactive.button_reply.title) {
-                    textBody = msg.interactive.button_reply.title;
-                  } else if (msg.interactive.list_reply && msg.interactive.list_reply.title) {
-                    textBody = msg.interactive.list_reply.title;
+                  if (msg.interactive.button_reply) {
+                    textBody = msg.interactive.button_reply.title || '';
+                    buttonId = msg.interactive.button_reply.id || '';
+                  } else if (msg.interactive.list_reply) {
+                    textBody = msg.interactive.list_reply.title || '';
+                    buttonId = msg.interactive.list_reply.id || '';
                   }
                 }
 
                 if (textBody) {
-                  await this.processIncomingMessage(fromPhone, textBody, messageId);
+                  await this.processIncomingMessage(fromPhone, textBody, messageId, buttonId);
                 }
               }
             }
@@ -354,7 +393,8 @@ export class WhatsAppService {
   public static async processIncomingMessage(
     fromPhone: string,
     textBody: string,
-    providerMessageId: string
+    providerMessageId: string,
+    buttonId?: string
   ): Promise<any> {
     const cleanPhone = this.normalizePhone(fromPhone);
     const originalTextBody = textBody;
@@ -393,6 +433,269 @@ export class WhatsAppService {
           ...owner!,
           name: `Unregistered (${cleanPhone})`,
         };
+
+    // A. Handle cancel/exit command to clear active sessions
+    const lowerText = textBody.trim().toLowerCase();
+    if (lowerText === 'cancel' || lowerText === 'exit') {
+      const deleted = await prisma.botSession.deleteMany({
+        where: { userId: senderUser.id }
+      });
+      if (deleted.count > 0) {
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+        const replyText = "Cancelled active action.";
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        return { status: 'success', message: replyText, outgoing: [outgoing] };
+      }
+    }
+
+    // B. Handle Button Clicks (if buttonId is provided)
+    if (buttonId) {
+      if (buttonId.startsWith('task_done:')) {
+        const taskId = buttonId.split(':')[1];
+        
+        // Log incoming message for button click
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+
+        const replyCommand = { type: 'DONE' as const, targetTaskId: taskId };
+        return await BotReplyService.executeReplyCommand(senderUser, replyCommand, cleanPhone, providerMessageId);
+      }
+
+      if (buttonId.startsWith('task_update:')) {
+        const taskId = buttonId.split(':')[1];
+        const task = await prisma.task.findUnique({ where: { id: taskId } });
+        if (!task) {
+          const replyText = "Task not found.";
+          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+          return { status: 'error', message: replyText, outgoing: [outgoing] };
+        }
+
+        // Save session state
+        await prisma.botSession.upsert({
+          where: { userId: senderUser.id },
+          create: { userId: senderUser.id, state: 'AWAITING_TASK_UPDATE', taskId },
+          update: { state: 'AWAITING_TASK_UPDATE', taskId }
+        });
+
+        // Log incoming message
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+
+        const replyText = `You selected to update the task:\n*"${task.title}"*\n\nPlease reply directly with your update text (e.g. 'I don't have funds'). Type 'cancel' to exit.`;
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        return { status: 'success', message: replyText, outgoing: [outgoing] };
+      }
+
+      if (buttonId.startsWith('task_delegate:')) {
+        const taskId = buttonId.split(':')[1];
+        const task = await prisma.task.findUnique({ where: { id: taskId } });
+        if (!task) {
+          const replyText = "Task not found.";
+          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+          return { status: 'error', message: replyText, outgoing: [outgoing] };
+        }
+
+        // Save session state
+        await prisma.botSession.upsert({
+          where: { userId: senderUser.id },
+          create: { userId: senderUser.id, state: 'AWAITING_TASK_DELEGATION', taskId },
+          update: { state: 'AWAITING_TASK_DELEGATION', taskId }
+        });
+
+        // Log incoming message
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+
+        const replyText = `You selected to delegate the task:\n*"${task.title}"*\n\nPlease reply with the name of the person you want to delegate this task to (e.g. 'Hardik'). Type 'cancel' to exit.`;
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        return { status: 'success', message: replyText, outgoing: [outgoing] };
+      }
+
+      if (buttonId.startsWith('delegate_select:')) {
+        const parts = buttonId.split(':');
+        const taskId = parts[1];
+        const assigneeId = parts[2];
+
+        const assignee = await prisma.user.findUnique({ where: { id: assigneeId } });
+        if (!assignee) {
+          const replyText = "Assignee not found.";
+          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+          return { status: 'error', message: replyText, outgoing: [outgoing] };
+        }
+
+        // Log incoming message
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+
+        const replyCommand = { 
+          type: 'DELEGATE' as const, 
+          targetTaskId: taskId, 
+          assigneeName: assignee.name,
+          message: 'Delegated via button choice.'
+        };
+
+        const result = await BotReplyService.executeReplyCommand(senderUser, replyCommand, cleanPhone, providerMessageId);
+
+        // Clear session
+        await prisma.botSession.deleteMany({
+          where: { userId: senderUser.id }
+        });
+
+        return result;
+      }
+    }
+
+    // C. Intercept Active Session States (if they exist)
+    const session = await prisma.botSession.findUnique({
+      where: { userId: senderUser.id }
+    });
+
+    if (session) {
+      if (session.state === 'AWAITING_TASK_UPDATE' && session.taskId) {
+        // Log incoming message
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+
+        const replyCommand = { 
+          type: 'UPDATE' as const, 
+          targetTaskId: session.taskId, 
+          message: textBody 
+        };
+
+        const result = await BotReplyService.executeReplyCommand(senderUser, replyCommand, cleanPhone, providerMessageId);
+        
+        // Clear session
+        await prisma.botSession.delete({
+          where: { userId: senderUser.id }
+        });
+
+        return result;
+      }
+
+      if (session.state === 'AWAITING_TASK_DELEGATION' && session.taskId) {
+        // Log incoming message
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+
+        const candidates = await BotService.resolveAssignee(textBody);
+
+        if (candidates.length === 0) {
+          const replyText = `Could not resolve assignee "${textBody}". No active user or department matched. Please reply with another name to try again, or type 'cancel' to exit.`;
+          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+          return { status: 'failed', message: replyText, outgoing: [outgoing] };
+        }
+
+        if (candidates.length > 1) {
+          // If there are multiple matches, let them choose using interactive buttons! (Max 3 candidates)
+          if (candidates.length <= 3) {
+            const bodyText = `Multiple matches found for "${textBody}". Please select the correct assignee below:`;
+            const buttons = candidates.map(c => ({
+              id: `delegate_select:${session.taskId}:${c.id}`,
+              title: c.name
+            }));
+            const outgoing = await this.sendWhatsAppButtonsAndLog(senderUser.id, cleanPhone, bodyText, buttons);
+            return { status: 'NEEDS_CONFIRMATION', message: bodyText, outgoing: [outgoing] };
+          } else {
+            let replyText = `Multiple matches found for "${textBody}". Please specify the name more clearly:\n`;
+            candidates.forEach((c, i) => {
+              replyText += `${i + 1}. ${c.name} (${c.department})\n`;
+            });
+            replyText += "\nReply with the exact name, or type 'cancel' to exit.";
+            const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+            return { status: 'NEEDS_CONFIRMATION', message: replyText, outgoing: [outgoing] };
+          }
+        }
+
+        // Exactly one match
+        const assignee = candidates[0];
+        const replyCommand = { 
+          type: 'DELEGATE' as const, 
+          targetTaskId: session.taskId, 
+          assigneeName: assignee.name,
+          message: 'Delegated via WhatsApp selection.'
+        };
+
+        const result = await BotReplyService.executeReplyCommand(senderUser, replyCommand, cleanPhone, providerMessageId);
+
+        // Clear session
+        await prisma.botSession.delete({
+          where: { userId: senderUser.id }
+        });
+
+        return result;
+      }
+    }
 
     // Helper to process predefined rigid commands
     const runPredefinedCommands = async (textToProcess: string): Promise<any | null> => {
@@ -685,7 +988,21 @@ export class WhatsAppService {
           const outgoingNotifications: any[] = [];
           for (const n of notifications) {
             if (n.toPhone) {
-              const outgoingNotif = await this.sendWhatsAppText(n.toPhone, n.rawText);
+              let outgoingNotif;
+              if (n.messageType === 'INTERACTIVE_BUTTON' && n.taskId) {
+                outgoingNotif = await this.sendWhatsAppTaskButtonsAndLog(
+                  n.toUserId || null,
+                  n.toPhone,
+                  n.rawText,
+                  n.taskId
+                );
+              } else {
+                outgoingNotif = await this.sendWhatsAppAndLog(
+                  n.toUserId || null,
+                  n.toPhone,
+                  n.rawText
+                );
+              }
               outgoingNotifications.push(outgoingNotif);
             }
           }
@@ -741,7 +1058,18 @@ export class WhatsAppService {
             where: { phoneNumber: cleanToPhone, channel: BotChannel.WHATSAPP },
           });
           const recipientId = recipientContact ? recipientContact.userId : null;
-          const outgoing = await this.sendWhatsAppAndLog(recipientId, cleanToPhone, n.rawText);
+          
+          let outgoing;
+          if (n.messageType === 'INTERACTIVE_BUTTON' && n.taskId) {
+            outgoing = await this.sendWhatsAppTaskButtonsAndLog(
+              recipientId,
+              cleanToPhone,
+              n.rawText,
+              n.taskId
+            );
+          } else {
+            outgoing = await this.sendWhatsAppAndLog(recipientId, cleanToPhone, n.rawText);
+          }
           outgoingMessages.push(outgoing);
         }
       }

@@ -216,36 +216,28 @@ export class BotService {
       }
     }
 
-    const assigneeMsg = await prisma.botMessage.create({
-      data: {
-        direction: 'OUTGOING',
-        channel,
+    const notifications = [
+      {
         toUserId: assignee.id,
         toPhone: toPhoneAssignee,
         rawText: assigneeText,
-        messageType: 'TEXT',
-        status: 'SENT',
+        messageType: 'INTERACTIVE_BUTTON',
+        taskId: task.id
       },
-    });
-
-    const senderMsg = await prisma.botMessage.create({
-      data: {
-        direction: 'OUTGOING',
-        channel,
+      {
         toUserId: sender.id,
         toPhone: toPhoneSender,
         rawText: senderText,
-        messageType: 'TEXT',
-        status: 'SENT',
-      },
-    });
+        messageType: 'TEXT'
+      }
+    ];
 
     return {
       status: 'success',
       data: {
         command,
         task,
-        notifications: [assigneeMsg, senderMsg],
+        notifications,
       },
     };
   }
