@@ -1,13 +1,189 @@
 import { env } from '../../config/env';
 import prisma from '../../config/db';
+import { BotStaffService } from './bot.staff-service';
 
 export interface LlmTranslation {
   isERPRelated: boolean;
   extractedCommand: string | null;
   directResponse: string | null;
+  dbOperations?: {
+    action: string;
+    params: any;
+  }[] | null;
 }
 
 export class LlmService {
+  /**
+   * Executes database mutations requested by the AI agent
+   */
+  public static async executeDbOperations(
+    operations: any[],
+    senderUserId: string
+  ): Promise<string[]> {
+    const auditLogs: string[] = [];
+
+    for (const op of operations) {
+      try {
+        console.log(`[LlmService] Executing DB operation: ${op.action}`, op.params);
+        
+        switch (op.action) {
+          case 'deleteTasks': {
+            const { titleContains, status, assigneeName, all } = op.params || {};
+            const whereClause: any = { isDeleted: false };
+            
+            if (!all) {
+              if (titleContains) {
+                whereClause.title = { contains: titleContains, mode: 'insensitive' };
+              }
+              if (status) {
+                whereClause.status = status;
+              }
+              if (assigneeName) {
+                const candidates = await this.resolveAssigneeName(assigneeName);
+                if (candidates.length > 0) {
+                  whereClause.assignedToId = { in: candidates.map(c => c.id) };
+                }
+              }
+            }
+
+            const result = await prisma.task.updateMany({
+              where: whereClause,
+              data: { isDeleted: true, deletedAt: new Date() }
+            });
+
+            auditLogs.push(`Deleted ${result.count} tasks matching: ${JSON.stringify(whereClause)}`);
+            break;
+          }
+
+          case 'createTask': {
+            const { title, assigneeName, priority, dueDate } = op.params || {};
+            const candidates = await this.resolveAssigneeName(assigneeName);
+            
+            if (candidates.length === 0) {
+              auditLogs.push(`Failed to create task: Could not resolve assignee "${assigneeName}"`);
+              break;
+            }
+            
+            const assignee = candidates[0];
+            const parsedDueDate = dueDate ? new Date(dueDate) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+            const task = await prisma.task.create({
+              data: {
+                title,
+                description: 'Created dynamically by AI agent.',
+                taskType: 'ASSIGNED',
+                createdById: senderUserId,
+                assignedToId: assignee.id,
+                dueDate: parsedDueDate,
+                priority: priority || 'MEDIUM',
+                status: 'PENDING'
+              }
+            });
+
+            auditLogs.push(`Created task "${task.title}" (ID: ${task.id}) assigned to ${assignee.name}`);
+            break;
+          }
+
+          case 'updateTask': {
+            const { titleContains, taskId, status } = op.params || {};
+            const whereClause: any = { isDeleted: false };
+            if (taskId) {
+              whereClause.id = taskId;
+            } else if (titleContains) {
+              whereClause.title = { contains: titleContains, mode: 'insensitive' };
+            }
+
+            const result = await prisma.task.updateMany({
+              where: whereClause,
+              data: {
+                status,
+                completedAt: status === 'COMPLETED' ? new Date() : null
+              }
+            });
+
+            auditLogs.push(`Updated ${result.count} tasks status to ${status}`);
+            break;
+          }
+
+          case 'updateVessel': {
+            const { name, location } = op.params || {};
+            const vessel = await prisma.vessel.findFirst({
+              where: { name: { contains: name, mode: 'insensitive' }, deletedAt: null }
+            });
+
+            if (!vessel) {
+              auditLogs.push(`Failed to update location: Vessel "${name}" not found`);
+              break;
+            }
+
+            await prisma.$transaction([
+              prisma.vessel.update({
+                where: { id: vessel.id },
+                data: { currentLocation: location }
+              }),
+              prisma.vesselLocationHistory.create({
+                data: {
+                  vesselId: vessel.id,
+                  location,
+                  updatedById: senderUserId
+                }
+              })
+            ]);
+
+            auditLogs.push(`Updated location of vessel "${vessel.name}" to "${location}"`);
+            break;
+          }
+
+          case 'addStaff': {
+            const { name, phone, position } = op.params || {};
+            const result = await BotStaffService.addStaff(senderUserId, name, phone, position);
+            auditLogs.push(`Add staff operation: ${result}`);
+            break;
+          }
+
+          default:
+            console.warn(`[LlmService] Unknown DB operation: ${op.action}`);
+        }
+      } catch (err: any) {
+        console.error(`[LlmService] Error executing DB operation ${op.action}:`, err);
+        auditLogs.push(`Error executing ${op.action}: ${err.message}`);
+      }
+    }
+
+    // Write to audit log
+    if (auditLogs.length > 0) {
+      await prisma.auditLog.create({
+        data: {
+          userId: senderUserId,
+          action: 'AI_AGENT_DB_OPERATIONS',
+          details: auditLogs.join('\n')
+        }
+      });
+    }
+
+    return auditLogs;
+  }
+
+  /**
+   * Helper to resolve assignee candidates by name
+   */
+  private static async resolveAssigneeName(name: string) {
+    const activeUsers = await prisma.user.findMany({
+      where: { isActive: true }
+    });
+
+    const queryLower = name.toLowerCase().trim();
+    const queryTokens = queryLower.split(/\s+/).filter(Boolean);
+
+    return activeUsers.filter(user => {
+      const userLower = user.name.toLowerCase();
+      const userTokens = userLower.split(/\s+/).filter(Boolean);
+      return queryTokens.every(qToken => 
+        userTokens.some(uToken => uToken.startsWith(qToken))
+      );
+    });
+  }
+
   /**
    * Retrieves the recent chat history for a sender to provide conversational context.
    */
@@ -158,8 +334,31 @@ You must reply with ONLY a JSON object in this format (no other text):
 {
   "isERPRelated": boolean,
   "extractedCommand": string | null,
-  "directResponse": string | null
-}`;
+  "directResponse": string | null,
+  "dbOperations": [
+    {
+      "action": "deleteTasks" | "createTask" | "updateTask" | "updateVessel" | "addStaff",
+      "params": object
+    }
+  ] | null
+}
+
+Guidelines for dbOperations:
+- If the user wants to mutate data or perform actions (e.g. "delete all that tasks", "create a task to check repairs assigned to hardik", "complete the fuel check task", "update KB 26 location to Mumbai", "add staff Ramesh +919876543210 manager"), select the appropriate database operations and fill the "dbOperations" array.
+- Action parameter details:
+  1. "deleteTasks":
+     - params: { "all": boolean } (set all to true to delete all tasks)
+  2. "createTask":
+     - params: { "title": string, "assigneeName": string, "priority": "HIGH"|"MEDIUM"|"LOW", "dueDate"?: "YYYY-MM-DD" }
+  3. "updateTask":
+     - params: { "titleContains": string, "status": "PENDING"|"IN_PROGRESS"|"COMPLETED"|"DELEGATED" } (e.g., to complete a task)
+  4. "updateVessel":
+     - params: { "name": string, "location": string }
+  5. "addStaff":
+     - params: { "name": string, "phone": string, "position": string }
+- Set "directResponse" to a natural, polite explanation of what you did (e.g., "I have successfully deleted all the active tasks." or "I've assigned the new task to Hardik K.").
+- For informational queries (e.g. "how many barges are of IV type"), keep "dbOperations" as null and answer using the "directResponse" field.
+- If the user requests an action that translates perfectly to a rigid legacy command and you prefer using it, you can still return "extractedCommand": "command_string" and set "dbOperations" and "directResponse" to null.`;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -210,7 +409,8 @@ You must reply with ONLY a JSON object in this format (no other text):
       return {
         isERPRelated: typeof parsed.isERPRelated === 'boolean' ? parsed.isERPRelated : true,
         extractedCommand: parsed.extractedCommand || null,
-        directResponse: parsed.directResponse || null
+        directResponse: parsed.directResponse || null,
+        dbOperations: parsed.dbOperations || null
       };
 
     } catch (err: any) {

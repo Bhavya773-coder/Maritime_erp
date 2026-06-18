@@ -421,6 +421,11 @@ export class WhatsAppService {
             outgoing: [outgoing],
           };
         } else if (translation.directResponse) {
+          // Execute database operations if requested by AI
+          if (translation.dbOperations && translation.dbOperations.length > 0) {
+            await LlmService.executeDbOperations(translation.dbOperations, senderUser.id);
+          }
+
           // Log incoming BotMessage with original text
           await prisma.botMessage.create({
             data: {
