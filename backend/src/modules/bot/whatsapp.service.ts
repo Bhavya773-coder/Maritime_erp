@@ -960,7 +960,7 @@ export class WhatsAppService {
             message: replyText,
             outgoing: [outgoing],
           };
-        } else if (translation.directResponse) {
+        } else if (translation.directResponse || (translation.dbOperations && translation.dbOperations.length > 0)) {
           // Execute database operations if requested by AI
           let notifications: any[] = [];
           if (translation.dbOperations && translation.dbOperations.length > 0) {
@@ -982,7 +982,8 @@ export class WhatsAppService {
             },
           });
 
-          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, translation.directResponse);
+          const replyText = translation.directResponse || "Operation executed successfully.";
+          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
 
           // Dispatch and log generated notifications
           const outgoingNotifications: any[] = [];

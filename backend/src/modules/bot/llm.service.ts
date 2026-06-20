@@ -66,7 +66,13 @@ export class LlmService {
             }
             
             const assignee = candidates[0];
-            const parsedDueDate = dueDate ? new Date(dueDate) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+            let parsedDueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            if (dueDate) {
+              const tempDate = new Date(dueDate);
+              if (!isNaN(tempDate.getTime())) {
+                parsedDueDate = tempDate;
+              }
+            }
 
             const task = await prisma.task.create({
               data: {

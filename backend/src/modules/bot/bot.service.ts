@@ -60,7 +60,7 @@ export class BotService {
         };
       }
 
-      if (translation.directResponse) {
+      if (translation.directResponse || (translation.dbOperations && translation.dbOperations.length > 0)) {
         // Execute database operations if requested by AI
         let notifications: any[] = [];
         if (translation.dbOperations && translation.dbOperations.length > 0) {
@@ -74,7 +74,7 @@ export class BotService {
 
         return {
           status: 'success',
-          message: translation.directResponse,
+          message: translation.directResponse || 'Operation executed successfully.',
           data: {
             notifications,
           },
