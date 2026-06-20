@@ -66,11 +66,16 @@ export class LlmService {
             }
             
             const assignee = candidates[0];
-            let parsedDueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            let parsedDueDate = new Date(Date.now() + 24 * 60 * 60 * 1000); // Default to tomorrow
             if (dueDate) {
-              const tempDate = new Date(dueDate);
-              if (!isNaN(tempDate.getTime())) {
-                parsedDueDate = tempDate;
+              const d = new Date(dueDate);
+              if (!isNaN(d.getTime())) {
+                parsedDueDate = d;
+              } else {
+                const lowerDue = String(dueDate).toLowerCase().trim();
+                if (lowerDue.includes('today')) {
+                  parsedDueDate = new Date();
+                }
               }
             }
 

@@ -982,7 +982,7 @@ export class WhatsAppService {
             },
           });
 
-          const replyText = translation.directResponse || "Operation executed successfully.";
+          const replyText = translation.directResponse || "I have processed your request.";
           const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
 
           // Dispatch and log generated notifications

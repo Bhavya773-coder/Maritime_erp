@@ -74,7 +74,7 @@ export class BotService {
 
         return {
           status: 'success',
-          message: translation.directResponse || 'Operation executed successfully.',
+          message: translation.directResponse || "I have processed your request.",
           data: {
             notifications,
           },
