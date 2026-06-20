@@ -195,7 +195,7 @@ async function main() {
       passwordHash,
       role: Role.OWNER,
       department: 'Management',
-      phone: '919820222733',
+      phone: '918202222733',
     },
     {
       name: 'Chintan Bhai Shah',
@@ -203,7 +203,7 @@ async function main() {
       passwordHash,
       role: Role.OWNER,
       department: 'Management',
-      phone: '919820000050',
+      phone: '918200005050',
     },
   ];
 
