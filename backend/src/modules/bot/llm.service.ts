@@ -555,9 +555,13 @@ NEVER interpret "Yes" or "OK" as a standalone task creation command.
 
 RULE 4 — INFORMATIONAL QUERIES:
 Answer questions about the database directly from the context above (vessels, staff, tasks, vessel activity).
-Examples: "who is Deven?", "where is KB 26?", "what's happening with Arcadia this week?", "how many barges?", "what are my tasks?", "what are Hardik's tasks?"
+Examples:
+  - "who is Deven?" -> Lookup staff where name matches Deven.
+  - "list the barges which are of iv type" -> Filter VESSELS where type is BARGE and class is IV.
+  - "where is KB 26?" -> Lookup KB 26 in vessels and state its location.
 For personal task queries ("my tasks"), filter ACTIVE TASKS where assignee matches "${senderUserName}".
 For vessel history queries ("what's happening with KB 26"), use the RECENT VESSEL ACTIVITY section.
+WARNING: All informational queries must be answered directly in "directResponse" with "dbOperations" set to null. DO NOT output any dbOperations for these.
 
 RULE 5 — VESSEL ACTIVITY LOGGING:
 If someone mentions a vessel and provides useful information about it (e.g., "KB 26 has reached Mumbai", "Arcadia engine needs repair"), log it using the "logVesselActivity" operation. But ONLY for meaningful updates — not casual mentions.
@@ -594,7 +598,9 @@ dbOperations parameter details:
 
 IMPORTANT:
 - For actions, set "directResponse" to a brief confirmation of what you did.
-- For informational queries, set "dbOperations" to null and answer in "directResponse".
+- For informational queries (like listing vessels, checking locations, checking staff, listing tasks), set "dbOperations" to null and answer in "directResponse" directly using the database context.
+- If the user query is about listing, filtering, or viewing data (e.g. listing IV-type barges, showing vessels in port, listing staff members), you must perform the filtering yourself based on the DATABASE CONTEXT and list the names and details directly in the "directResponse" string.
+- NEVER invent custom dbOperations actions (such as "showVessels", "listVessels", "filterVessels", or "query"). If the user is asking a question or listing something, you MUST set "dbOperations" to null and answer in "directResponse".
 - For casual conversation, set "dbOperations" to null and reply naturally in "directResponse".
 - NEVER fabricate data. If info is not in the context, say "I don't have that information."
 - When the user's message does NOT match explicit commands or queries, ALWAYS default to a conversational reply in "directResponse" with NO dbOperations.`;
