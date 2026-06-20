@@ -141,14 +141,6 @@ async function main() {
       phone: '919256009840',
     },
     {
-      name: 'New Test Member',
-      email: 'newtestmember@apil.local',
-      passwordHash,
-      role: Role.STAFF,
-      department: 'AG',
-      phone: '919999988888',
-    },
-    {
       name: 'Prakash Gayari',
       email: 'prakash@apil.local',
       passwordHash,
