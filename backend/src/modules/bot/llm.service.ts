@@ -386,6 +386,61 @@ export class LlmService {
   }
 
   /**
+   * Extracts the directResponse value from raw LLM output that may be truncated JSON.
+   * Handles cases like: '{ "directResponse": "Hello world...' (no closing brace)
+   */
+  private static extractDirectResponseFromRaw(raw: string): string | null {
+    try {
+      // Try to find "directResponse" : "..." pattern
+      const marker = '"directResponse"';
+      const idx = raw.indexOf(marker);
+      if (idx === -1) return null;
+
+      // Find the start of the value (skip past the colon and whitespace)
+      let valueStart = raw.indexOf(':', idx + marker.length);
+      if (valueStart === -1) return null;
+      valueStart++;
+
+      // Skip whitespace
+      while (valueStart < raw.length && (raw[valueStart] === ' ' || raw[valueStart] === '\n' || raw[valueStart] === '\r' || raw[valueStart] === '\t')) {
+        valueStart++;
+      }
+
+      if (valueStart >= raw.length) return null;
+
+      // Check if value starts with a quote
+      if (raw[valueStart] === '"') {
+        // Extract the string value, handling escaped quotes
+        let result = '';
+        let i = valueStart + 1;
+        while (i < raw.length) {
+          if (raw[i] === '\\' && i + 1 < raw.length) {
+            // Handle escape sequences
+            const next = raw[i + 1];
+            if (next === '"') { result += '"'; i += 2; }
+            else if (next === 'n') { result += '\n'; i += 2; }
+            else if (next === 'r') { result += '\r'; i += 2; }
+            else if (next === 't') { result += '\t'; i += 2; }
+            else if (next === '\\') { result += '\\'; i += 2; }
+            else { result += raw[i]; i++; }
+          } else if (raw[i] === '"') {
+            // End of string
+            break;
+          } else {
+            result += raw[i];
+            i++;
+          }
+        }
+        return result.trim() || null;
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Retrieves the recent chat history for a sender to provide conversational context.
    * Fetches 20 messages (both user and bot) to maintain deep context.
    */
@@ -420,10 +475,19 @@ export class LlmService {
           }
           return true;
         })
-        .map(m => ({
-          role: m.direction === 'INCOMING' ? 'user' : 'assistant',
-          content: m.rawText
-        }));
+        .map(m => {
+          let content = m.rawText;
+          // Clean up bot responses that were stored as raw JSON from previous broken responses
+          // e.g. '{ "directResponse": "Hello!"...' should become just 'Hello!'
+          if (m.direction === 'OUTGOING' && content.trim().startsWith('{')) {
+            const extracted = this.extractDirectResponseFromRaw(content);
+            if (extracted) content = extracted;
+          }
+          return {
+            role: m.direction === 'INCOMING' ? 'user' : 'assistant',
+            content
+          };
+        });
     } catch (err) {
       console.error('[LlmService] Error fetching chat history:', err);
       return [];
@@ -700,7 +764,8 @@ Bad directResponse: null or "I have processed your request."`;
           stream: false,
           format: 'json',
           options: {
-            temperature: 0.2
+            temperature: 0.2,
+            num_predict: 4096
           }
         })
       });
@@ -719,11 +784,20 @@ Bad directResponse: null or "I have processed your request."`;
       // Clean response to parse JSON reliably (extract text between first '{' and last '}')
       const match = rawContent.match(/\{[\s\S]*\}/);
       if (!match) {
-        console.warn('[LlmService] Failed to extract JSON block from LLM response. Using raw text as response.');
-        // If LLM didn't return JSON, use the raw text as the response
+        console.warn('[LlmService] Failed to extract JSON block from LLM response. Attempting fallback extraction.');
+        // Fallback: try to extract directResponse from truncated JSON
+        const fallbackResponse = this.extractDirectResponseFromRaw(rawContent);
+        if (fallbackResponse) {
+          console.log('[LlmService] Fallback extraction successful.');
+          return {
+            isERPRelated: true,
+            directResponse: fallbackResponse
+          };
+        }
+        // Last resort: return a helpful error
         return {
           isERPRelated: true,
-          directResponse: rawContent.trim() || 'I understood your message but had trouble formatting my response. Could you please rephrase?'
+          directResponse: 'I understood your message but my response was too long. Could you ask a more specific question? For example, "list barges at Dahej" instead of "list all barges with details".'
         };
       }
 
