@@ -92,7 +92,7 @@ export class LlmService {
               }
             });
 
-            auditLogs.push(`Created task "${task.title}" (ID: ${task.id}) assigned to ${assignee.name}`);
+            auditLogs.push(`Created task "${task.title}" (ID: ${task.id}) assigned to ${assignee.name}, due ${parsedDueDate.toISOString().split('T')[0]}`);
 
             // Auto-detect vessel mentions and log activity
             const allVessels = await prisma.vessel.findMany({ where: { deletedAt: null }, select: { id: true, name: true } });
@@ -387,6 +387,7 @@ export class LlmService {
 
   /**
    * Retrieves the recent chat history for a sender to provide conversational context.
+   * Fetches 20 messages (both user and bot) to maintain deep context.
    */
   private static async getChatHistory(senderUserId: string): Promise<{ role: string; content: string }[]> {
     try {
@@ -399,16 +400,30 @@ export class LlmService {
           ]
         },
         orderBy: { createdAt: 'desc' },
-        take: 8 // Fetch last 8 messages for context
+        take: 20 // Fetch last 20 messages for deep context
       });
 
       // Reverse to chronological order (oldest first)
       const sorted = messages.reverse();
 
-      return sorted.map(m => ({
-        role: m.direction === 'INCOMING' ? 'user' : 'assistant',
-        content: m.rawText
-      }));
+      return sorted
+        .filter(m => {
+          // Filter out internal notification messages (task buttons, template texts)
+          // Keep only actual conversational messages
+          if (m.direction === 'OUTGOING') {
+            // Skip notification messages sent to OTHER users
+            if (m.toUserId && m.toUserId !== senderUserId) return false;
+            // Skip interactive button messages (they are task notifications)
+            if (m.messageType === 'INTERACTIVE_BUTTON') return false;
+            // Skip template messages
+            if (m.messageType === 'TEMPLATE') return false;
+          }
+          return true;
+        })
+        .map(m => ({
+          role: m.direction === 'INCOMING' ? 'user' : 'assistant',
+          content: m.rawText
+        }));
     } catch (err) {
       console.error('[LlmService] Error fetching chat history:', err);
       return [];
@@ -416,8 +431,8 @@ export class LlmService {
   }
 
   /**
-   * Fetches active database records to feed to the LLM context.
-   * Uses a compressed pipe-separated value format to reduce token counts for faster inference.
+   * Fetches comprehensive database records to feed to the LLM context.
+   * Provides FULL details so the LLM can generate rich, detailed answers.
    */
   private static async getDatabaseContext(): Promise<string> {
     try {
@@ -428,10 +443,17 @@ export class LlmService {
           where: { deletedAt: null },
           select: {
             name: true,
+            registrationNo: true,
             type: true,
             status: true,
             currentLocation: true,
-            irsIv: true
+            classification: true,
+            buildYear: true,
+            length: true,
+            breadth: true,
+            depth: true,
+            irsIv: true,
+            remark: true
           }
         }),
         prisma.user.findMany({
@@ -450,9 +472,12 @@ export class LlmService {
           where: { isDeleted: false, status: { not: 'COMPLETED' } },
           select: {
             title: true,
+            description: true,
             status: true,
             priority: true,
             dueDate: true,
+            createdAt: true,
+            creator: { select: { name: true } },
             assignee: { select: { name: true } }
           }
         }),
@@ -469,29 +494,55 @@ export class LlmService {
         })
       ]);
 
-      let ctx = 'VESSELS:\n';
-      vessels.forEach(v => {
-        ctx += `${v.name}|${v.type}|${v.status}|${v.currentLocation}|${v.irsIv || 'N/A'}\n`;
+      let ctx = '=== VESSELS (Fleet) ===\n';
+      ctx += `Total vessels: ${vessels.length}\n\n`;
+      vessels.forEach((v, i) => {
+        ctx += `${i + 1}. ${v.name}\n`;
+        ctx += `   Type: ${v.type} | Status: ${v.status} | Location: ${v.currentLocation}\n`;
+        ctx += `   Registration: ${v.registrationNo}`;
+        if (v.classification) ctx += ` | Class: ${v.classification}`;
+        if (v.irsIv) ctx += ` | IRS/IV: ${v.irsIv}`;
+        if (v.buildYear) ctx += ` | Built: ${v.buildYear}`;
+        ctx += '\n';
+        if (v.length || v.breadth || v.depth) {
+          ctx += `   Dimensions: ${v.length || '?'}m × ${v.breadth || '?'}m × ${v.depth || '?'}m\n`;
+        }
+        if (v.remark) ctx += `   Remark: ${v.remark}\n`;
+        ctx += '\n';
       });
 
-      ctx += '\nSTAFF:\n';
-      users.forEach(u => {
-        const phone = u.contacts[0]?.phoneNumber ? '+' + u.contacts[0].phoneNumber : 'N/A';
-        ctx += `${u.name}|${u.role}|${u.department || 'N/A'}|${phone}\n`;
+      ctx += '=== STAFF (Active Employees) ===\n';
+      ctx += `Total staff: ${users.length}\n\n`;
+      users.forEach((u, i) => {
+        const phone = u.contacts[0]?.phoneNumber ? '+' + u.contacts[0].phoneNumber : 'No phone';
+        ctx += `${i + 1}. ${u.name} | Role: ${u.role} | Dept: ${u.department || 'N/A'} | Phone: ${phone}\n`;
       });
 
-      ctx += '\nACTIVE TASKS:\n';
-      tasks.forEach(t => {
-        const assignee = t.assignee?.name || 'Unassigned';
-        const due = t.dueDate ? t.dueDate.toISOString().split('T')[0] : 'No due date';
-        ctx += `${t.title}|${t.status}|${t.priority}|${assignee}|Due:${due}\n`;
-      });
+      ctx += '\n=== ACTIVE TASKS (Not Completed) ===\n';
+      ctx += `Total active tasks: ${tasks.length}\n\n`;
+      if (tasks.length === 0) {
+        ctx += 'No active tasks currently.\n';
+      } else {
+        tasks.forEach((t, i) => {
+          const assignee = t.assignee?.name || 'Unassigned';
+          const creator = t.creator?.name || 'Unknown';
+          const due = t.dueDate ? t.dueDate.toISOString().split('T')[0] : 'No due date';
+          const created = t.createdAt ? t.createdAt.toISOString().split('T')[0] : 'Unknown';
+          ctx += `${i + 1}. "${t.title}"\n`;
+          ctx += `   Status: ${t.status} | Priority: ${t.priority} | Due: ${due}\n`;
+          ctx += `   Assigned to: ${assignee} | Created by: ${creator} | Created: ${created}\n`;
+          if (t.description && t.description !== 'Created dynamically by AI agent.') {
+            ctx += `   Description: ${t.description}\n`;
+          }
+          ctx += '\n';
+        });
+      }
 
       if (vesselActivity.length > 0) {
-        ctx += '\nRECENT VESSEL ACTIVITY (last 7 days):\n';
+        ctx += '=== RECENT VESSEL ACTIVITY (last 7 days) ===\n\n';
         vesselActivity.forEach(a => {
           const date = a.createdAt.toISOString().split('T')[0];
-          ctx += `${a.vessel.name}|${a.activityType}|${a.summary}|${date}\n`;
+          ctx += `• ${a.vessel.name} — ${a.activityType}: ${a.summary} (${date})\n`;
         });
       }
 
@@ -500,6 +551,108 @@ export class LlmService {
       console.error('[LlmService] Error fetching database context:', err);
       return '';
     }
+  }
+
+  /**
+   * Build the system prompt for the AI assistant.
+   */
+  private static buildSystemPrompt(
+    dbContext: string,
+    senderUserName: string,
+    senderUserId: string,
+    senderUserRole: string
+  ): string {
+    const today = new Date().toISOString().split('T')[0];
+
+    return `You are the intelligent AI assistant for Arvind Port & Infra Limited (APIL), a maritime company. You operate on WhatsApp.
+You are chatting with: ${senderUserName} (Role: ${senderUserRole}).
+Today's date: ${today}
+
+COMPANY DATABASE:
+${dbContext}
+
+════════════════════════════════════════════════
+YOUR PERSONALITY & BEHAVIOR
+════════════════════════════════════════════════
+
+You are a smart, helpful, and conversational assistant. You can:
+• Chat naturally and respond to greetings, questions, and casual conversation
+• Answer questions about vessels, staff, tasks, and company operations using the database
+• Create tasks, update tasks, delegate tasks, and manage company operations
+• Summarize ongoing work, list detailed information, and provide insights
+• Remember context from the conversation history (previous messages are provided to you)
+
+GOLDEN RULES:
+1. ALWAYS provide a complete, natural, human-readable answer in "directResponse". NEVER leave it null or empty.
+2. When listing items (vessels, tasks, staff), include ALL relevant details — names, types, statuses, locations, dates, etc.
+3. When the user says "and?" or "what else?" or asks a follow-up, look at the conversation history and continue from where you left off.
+4. Be conversational and friendly. You are a personal assistant, not a robot.
+5. If you created a task, confirm it with full details: who it's assigned to, the title, due date, priority.
+
+════════════════════════════════════════════════
+TASK CREATION RULES
+════════════════════════════════════════════════
+
+When the user explicitly asks to assign, create, or request someone to do something:
+• Extract the ASSIGNEE (person name from STAFF list)
+• Extract the TASK/ACTION (what to do)
+• If dueDate is not mentioned, default to tomorrow (${new Date(Date.now() + 86400000).toISOString().split('T')[0]})
+• Match assignee names flexibly — "hardik k" matches "Hardik Kateshiya", "deven" matches "Deven Patel", etc.
+• IMPORTANT: Even poorly worded requests like "ask hardik k to bring waterbottel in my office rn" should be understood and create a task with title "Bring Water Bottle" assigned to the matching person.
+
+DO NOT create tasks from:
+• Casual replies: "OK", "yes", "sure", "thanks", "hello"
+• Complaints or status updates: "I don't have money", "it's raining"
+• Questions: "what time is lunch?", "how are you?"
+
+════════════════════════════════════════════════
+RESPONSE FORMAT — JSON ONLY
+════════════════════════════════════════════════
+
+Reply with ONLY this JSON (no extra text):
+{
+  "isERPRelated": boolean,
+  "directResponse": "YOUR COMPLETE NATURAL LANGUAGE ANSWER HERE — NEVER null",
+  "dbOperations": [
+    {
+      "action": "deleteTasks" | "createTask" | "updateTask" | "updateVessel" | "addStaff" | "logVesselActivity",
+      "params": object
+    }
+  ] | null
+}
+
+dbOperations parameter details:
+1. "deleteTasks": { "all": boolean, "titleContains"?: string }
+2. "createTask": { "title": string, "assigneeName": string, "priority": "HIGH"|"MEDIUM"|"LOW", "dueDate"?: "YYYY-MM-DD" }
+3. "updateTask": { "titleContains": string, "status": "PENDING"|"IN_PROGRESS"|"COMPLETED"|"DELEGATED", "assigneeName"?: string, "note"?: string }
+4. "updateVessel": { "name": string, "location": string }
+5. "addStaff": { "name": string, "phone": string, "position": string }
+6. "logVesselActivity": { "vesselName": string, "activityType": "TASK_ASSIGNED"|"TASK_COMPLETED"|"LOCATION_UPDATE"|"STATUS_UPDATE"|"CONVERSATION_MENTION", "summary": string }
+
+CRITICAL RULES:
+• For mutations (create/update/delete), set BOTH "directResponse" AND "dbOperations".
+  Example directResponse after creating task: "Done! I've assigned the task 'Bring Water Bottle' to Hardik Kateshiya with MEDIUM priority, due ${new Date(Date.now() + 86400000).toISOString().split('T')[0]}. He'll be notified on WhatsApp."
+• For questions/queries (listing vessels, checking tasks, asking about staff), set "dbOperations" to null and answer fully in "directResponse".
+• NEVER invent custom dbOperations (no "showVessels", "listVessels", "filterVessels", "query"). If the user asks a question, answer it directly.
+• NEVER fabricate data. If info is not in the database context, say "I don't have that information in the system."
+• isERPRelated should be true for: tasks, vessels, staff, company queries, office chores, greetings, and anything that could be related to work.
+• isERPRelated should be false ONLY for: coding help, math homework, general knowledge questions completely unrelated to work.
+
+════════════════════════════════════════════════
+EXAMPLES OF GOOD RESPONSES
+════════════════════════════════════════════════
+
+User: "list all barges with details"
+Good directResponse: "Here are all the barges in our fleet:\n\n1. KB 18 (ARCADEIA ADINATH)\n   Type: BARGE | Status: ACTIVE | Location: Mumbai\n   Registration: MH-1234 | IRS/IV: IV | Built: 2015\n   Dimensions: 60m × 15m × 4m\n\n2. ARCADIA VARUN\n   Type: BARGE | Status: ACTIVE | Location: Hazira\n   ..."
+Bad directResponse: "We have 17 barges." (too brief, no details)
+
+User: "how many tasks are pending?" then "who assigned them?"
+Good directResponse: "Here are the pending tasks with assignee details:\n\n1. 'Bring Water Bottle' — Assigned to Hardik Kateshiya by Bhavya, due 2026-06-21\n2. 'Engine Inspection' — Assigned to Deven by Bhavya, due 2026-06-25"
+Bad directResponse: "Hardik Kateshiya" (missing context, incomplete)
+
+User: "hi"
+Good directResponse: "Hello ${senderUserName}! 👋 How can I help you today? I can assist with tasks, vessel information, staff queries, or anything else you need."
+Bad directResponse: null or "I have processed your request."`;
   }
 
   /**
@@ -521,90 +674,7 @@ export class LlmService {
       this.getChatHistory(senderUserId)
     ]);
 
-    const systemPrompt = `You are the Arvind Port & Infra Limited Maritime ERP assistant on WhatsApp.
-Current user: ${senderUserName} (ID: ${senderUserId}, Role: ${senderUserRole}).
-
-DATABASE CONTEXT:
-${dbContext}
-
-═══════════════════════════════════════════════════════
-CRITICAL RULES — STRICT MODE — READ CAREFULLY
-═══════════════════════════════════════════════════════
-
-RULE 1 — TASK CREATION:
-When the user explicitly asks to assign, create, or request someone to do something (e.g. "tell X to do Y", "assign a task to X to do Y", "X needs to do Y"):
-  - Create the task in the database using the "createTask" operation.
-  - The task parameters MUST contain:
-    (a) An explicit ASSIGNEE name (a person from the STAFF list)
-    (b) An explicit ACTION / DESCRIPTION (what to do)
-  - If dueDate is missing, default to tomorrow or ask: "What is the deadline for this task?"
-  - If assignee or action is missing, ask the user to clarify.
-
-RULE 2 — NEVER CREATE TASKS FROM CASUAL CONVERSATION:
-ABSOLUTELY DO NOT create tasks from:
-  - Casual replies like "I don't have money", "OK", "Yes", "Sure", "Thanks", "Hello"
-  - Complaints or status updates like "I haven't done it yet", "It's raining"
-  - Questions like "What time is lunch?", "How are you?"
-  - Forwarded messages, jokes, or random text
-  - Anything that is NOT a direct explicit command to assign/create a task
-If in doubt, treat the message as conversation and reply naturally. DO NOT guess intent.
-
-RULE 3 — CONFIRMATIONS ("Yes", "OK", "Sure"):
-Only treat these as continuation of a PENDING question from chat history (e.g., confirming a deadline you asked about). If there is no pending question, just reply conversationally.
-NEVER interpret "Yes" or "OK" as a standalone task creation command.
-
-RULE 4 — INFORMATIONAL QUERIES:
-Answer questions about the database directly from the context above (vessels, staff, tasks, vessel activity).
-Examples:
-  - "who is Deven?" -> Lookup staff where name matches Deven.
-  - "list the barges which are of iv type" -> Filter VESSELS where type is BARGE and class is IV.
-  - "where is KB 26?" -> Lookup KB 26 in vessels and state its location.
-For personal task queries ("my tasks"), filter ACTIVE TASKS where assignee matches "${senderUserName}".
-For vessel history queries ("what's happening with KB 26"), use the RECENT VESSEL ACTIVITY section.
-WARNING: All informational queries must be answered directly in "directResponse" with "dbOperations" set to null. DO NOT output any dbOperations for these.
-
-RULE 5 — VESSEL ACTIVITY LOGGING:
-If someone mentions a vessel and provides useful information about it (e.g., "KB 26 has reached Mumbai", "Arcadia engine needs repair"), log it using the "logVesselActivity" operation. But ONLY for meaningful updates — not casual mentions.
-
-RULE 6 — OFF-TOPIC & ERP SCOPE:
-- General knowledge, coding help, jokes, or non-business chitchat: set isERPRelated to false.
-- IMPORTANT: Any command to create, assign, update, list, or delete tasks for staff/members (including simple chores or office tasks like "bring water bottles", "buy a pen", "complete a payment") is ALWAYS considered ERP-related and must have isERPRelated set to true.
-
-RULE 7 — TASK UPDATES & REASONS:
-If a user replies to a task with a status update, issue, or reason (e.g., "I don't have funds", "The part is missing", "Done but waiting for approval"), YOU MUST use the "updateTask" operation and put their exact reason in the "note" field so the creator is notified of WHY it is pending or updated.
-
-═══════════════════════════════════════════════════════
-RESPONSE FORMAT — JSON ONLY
-═══════════════════════════════════════════════════════
-
-Reply with ONLY this JSON (no extra text):
-{
-  "isERPRelated": boolean,
-  "directResponse": string | null,
-  "dbOperations": [
-    {
-      "action": "deleteTasks" | "createTask" | "updateTask" | "updateVessel" | "addStaff" | "logVesselActivity",
-      "params": object
-    }
-  ] | null
-}
-
-dbOperations parameter details:
-1. "deleteTasks": { "all": boolean, "titleContains"?: string }
-2. "createTask": { "title": string, "assigneeName": string, "priority": "HIGH"|"MEDIUM"|"LOW", "dueDate"?: "YYYY-MM-DD" }
-3. "updateTask": { "titleContains": string, "status": "PENDING"|"IN_PROGRESS"|"COMPLETED"|"DELEGATED", "assigneeName"?: string, "note"?: string }
-4. "updateVessel": { "name": string, "location": string }
-5. "addStaff": { "name": string, "phone": string, "position": string }
-6. "logVesselActivity": { "vesselName": string, "activityType": "TASK_ASSIGNED"|"TASK_COMPLETED"|"LOCATION_UPDATE"|"STATUS_UPDATE"|"CONVERSATION_MENTION", "summary": string }
-
-IMPORTANT:
-- For actions, set "directResponse" to a brief confirmation of what you did.
-- For informational queries (like listing vessels, checking locations, checking staff, listing tasks), set "dbOperations" to null and answer in "directResponse" directly using the database context.
-- If the user query is about listing, filtering, or viewing data (e.g. listing IV-type barges, showing vessels in port, listing staff members), you must perform the filtering yourself based on the DATABASE CONTEXT and list the names and details directly in the "directResponse" string.
-- NEVER invent custom dbOperations actions (such as "showVessels", "listVessels", "filterVessels", or "query"). If the user is asking a question or listing something, you MUST set "dbOperations" to null and answer in "directResponse".
-- For casual conversation, set "dbOperations" to null and reply naturally in "directResponse".
-- NEVER fabricate data. If info is not in the context, say "I don't have that information."
-- When the user's message does NOT match explicit commands or queries, ALWAYS default to a conversational reply in "directResponse" with NO dbOperations.`;
+    const systemPrompt = this.buildSystemPrompt(dbContext, senderUserName, senderUserId, senderUserRole);
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -615,6 +685,8 @@ IMPORTANT:
     }
 
     try {
+      console.log(`[LlmService] Sending to LLM with ${history.length} history messages`);
+
       const response = await fetch(env.LLAMA_API_URL, {
         method: 'POST',
         headers,
@@ -628,7 +700,7 @@ IMPORTANT:
           stream: false,
           format: 'json',
           options: {
-            temperature: 0.1
+            temperature: 0.2
           }
         })
       });
@@ -636,31 +708,62 @@ IMPORTANT:
       if (!response.ok) {
         const errText = await response.text();
         console.error(`[LlmService] Ollama API error: ${response.status} - ${errText}`);
-        return { isERPRelated: true, directResponse: null };
+        return { isERPRelated: true, directResponse: 'Sorry, I encountered an error processing your request. Please try again.' };
       }
 
       const resJson: any = await response.json();
       const rawContent = resJson.message?.content || '';
       
-      console.log(`[LlmService] Raw response content: "${rawContent}"`);
+      console.log(`[LlmService] Raw response content: "${rawContent.substring(0, 300)}..."`);
 
       // Clean response to parse JSON reliably (extract text between first '{' and last '}')
       const match = rawContent.match(/\{[\s\S]*\}/);
       if (!match) {
-        console.warn('[LlmService] Failed to extract JSON block from LLM response.');
-        return { isERPRelated: true, directResponse: null };
+        console.warn('[LlmService] Failed to extract JSON block from LLM response. Using raw text as response.');
+        // If LLM didn't return JSON, use the raw text as the response
+        return {
+          isERPRelated: true,
+          directResponse: rawContent.trim() || 'I understood your message but had trouble formatting my response. Could you please rephrase?'
+        };
       }
 
       const parsed = JSON.parse(match[0]) as LlmTranslation;
+      
+      // SAFETY NET: Ensure directResponse is never null or empty
+      let directResponse = parsed.directResponse;
+      if (!directResponse || directResponse.trim() === '' || directResponse === 'null') {
+        // If LLM returned operations but no response, build a confirmation from audit logs
+        if (parsed.dbOperations && parsed.dbOperations.length > 0) {
+          const ops = parsed.dbOperations;
+          const summaries: string[] = [];
+          for (const op of ops) {
+            if (op.action === 'createTask') {
+              summaries.push(`I've created the task "${op.params.title}" and assigned it to ${op.params.assigneeName}. They'll be notified on WhatsApp.`);
+            } else if (op.action === 'updateTask') {
+              summaries.push(`I've updated the task "${op.params.titleContains || 'matching task'}" to status: ${op.params.status}.`);
+            } else if (op.action === 'deleteTasks') {
+              summaries.push(`I've deleted the requested tasks.`);
+            } else if (op.action === 'updateVessel') {
+              summaries.push(`I've updated the location of ${op.params.name} to ${op.params.location}.`);
+            } else {
+              summaries.push(`I've processed your ${op.action} request.`);
+            }
+          }
+          directResponse = summaries.join('\n');
+        } else {
+          directResponse = 'I understood your message but could not generate a proper response. Could you please rephrase your question?';
+        }
+      }
+
       return {
         isERPRelated: typeof parsed.isERPRelated === 'boolean' ? parsed.isERPRelated : true,
-        directResponse: parsed.directResponse || null,
+        directResponse,
         dbOperations: parsed.dbOperations || null
       };
 
     } catch (err: any) {
       console.error('[LlmService] Exception during LLM query:', err);
-      return { isERPRelated: true, directResponse: null };
+      return { isERPRelated: true, directResponse: 'Sorry, I encountered a connection error. Please try again in a moment.' };
     }
   }
 }

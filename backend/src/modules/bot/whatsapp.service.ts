@@ -1,12 +1,8 @@
 import prisma from '../../config/db';
 import { env } from '../../config/env';
 import { BotService } from './bot.service';
-import { BotChannel, Role } from '@prisma/client';
-import { BotReplyParser } from './bot.reply-parser';
-import { BotStaffService } from './bot.staff-service';
+import { BotChannel } from '@prisma/client';
 import { BotReplyService } from './bot.reply-service';
-import { BotFleetParser } from './bot.fleet-parser';
-import { BotFleetService } from './bot.fleet-service';
 import { LlmService } from './llm.service';
 
 export class WhatsAppService {
@@ -697,387 +693,135 @@ export class WhatsAppService {
       }
     }
 
-    // Helper to process predefined rigid commands
-    const runPredefinedCommands = async (textToProcess: string): Promise<any | null> => {
-      const cleanMsg = textToProcess.trim().toLowerCase();
+    // D. Route ALL messages through the LLM
+    // Only "menu" gets a special fast-path for WhatsApp interactive buttons
+    const cleanMsg = textBody.trim().toLowerCase();
+    if (cleanMsg === 'menu' || cleanMsg === 'buttons') {
+      await prisma.botMessage.create({
+        data: {
+          direction: 'INCOMING',
+          channel: BotChannel.WHATSAPP,
+          fromUserId: senderUser.id,
+          fromPhone: cleanPhone,
+          rawText: originalTextBody,
+          messageType: 'TEXT',
+          status: 'RECEIVED',
+          providerMessageId,
+        },
+      });
 
-      // 1. Check if it is a menu/buttons/start/hi/hello/hey command
-      if (cleanMsg === 'menu' || cleanMsg === 'buttons' || cleanMsg === 'start' || cleanMsg === 'hi' || cleanMsg === 'hello' || cleanMsg === 'hey') {
-        await prisma.botMessage.create({
-          data: {
-            direction: 'INCOMING',
-            channel: BotChannel.WHATSAPP,
-            fromUserId: senderUser.id,
-            fromPhone: cleanPhone,
-            rawText: originalTextBody,
-            messageType: 'TEXT',
-            status: 'RECEIVED',
-            providerMessageId,
-          },
-        });
+      const bodyText = `Welcome to Arvind Port & Infra Limited Bot Menu.\nPlease select an option below:`;
+      const buttons = [
+        { id: 'btn_show_barges', title: 'Show all barges' },
+        { id: 'btn_show_tugs', title: 'Show all tugs' },
+        { id: 'btn_status', title: 'STATUS' }
+      ];
 
-        const bodyText = `Welcome to Arvind Port & Infra Limited Bot Menu.\nPlease select an option below:`;
-        const buttons = [
-          { id: 'btn_show_barges', title: 'Show all barges' },
-          { id: 'btn_show_tugs', title: 'Show all tugs' },
-          { id: 'btn_status', title: 'STATUS' }
-        ];
+      const outgoing = await this.sendWhatsAppButtonsAndLog(senderUser.id, cleanPhone, bodyText, buttons);
+      return {
+        status: 'success',
+        message: bodyText,
+        outgoing: [outgoing],
+      };
+    }
 
-        const outgoing = await this.sendWhatsAppButtonsAndLog(senderUser.id, cleanPhone, bodyText, buttons);
+    // E. LLM-powered AI response for ALL other messages
+    try {
+      const translation = await LlmService.translateMessage(
+        textBody,
+        senderUser.id,
+        senderUser.name,
+        senderUser.role
+      );
 
-        return {
-          status: 'success',
-          message: bodyText,
-          outgoing: [outgoing],
-        };
-      }
+      // Log incoming message
+      await prisma.botMessage.create({
+        data: {
+          direction: 'INCOMING',
+          channel: BotChannel.WHATSAPP,
+          fromUserId: senderUser.id,
+          fromPhone: cleanPhone,
+          rawText: originalTextBody,
+          messageType: 'TEXT',
+          status: 'RECEIVED',
+          providerMessageId,
+        },
+      });
 
-      // 2. Check if it is an ADD STAFF command
-      const addStaffMatch = textToProcess.trim().match(/^add\s+staff\s+(.+?)\s+(\+?\d[\d\s-]+)\s+(.+)$/i);
-      if (addStaffMatch) {
-        await prisma.botMessage.create({
-          data: {
-            direction: 'INCOMING',
-            channel: BotChannel.WHATSAPP,
-            fromUserId: senderUser.id,
-            fromPhone: cleanPhone,
-            rawText: originalTextBody,
-            messageType: 'TEXT',
-            status: 'RECEIVED',
-            providerMessageId,
-          },
-        });
-
-        if (!contact || !contact.isVerified || (contact.user.role !== Role.OWNER && contact.user.role !== Role.MANAGER)) {
-          const replyText = 'Error: Unauthorized. Only registered and verified Owners or Managers can add staff.';
-          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-          return {
-            status: 'failed',
-            message: replyText,
-            outgoing: [outgoing],
-          };
-        }
-
-        const name = addStaffMatch[1].trim();
-        const phone = addStaffMatch[2].trim();
-        const position = addStaffMatch[3].trim();
-        const replyText = await BotStaffService.addStaff(senderUser.id, name, phone, position);
+      if (!translation.isERPRelated) {
+        const replyText = translation.directResponse || "I am an ERP assistant and can only help with ERP tasks like scheduling, vessel updates, and staff queries. Please ask an office-related question.";
         const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
         return {
-          status: 'success',
+          status: 'failed',
           message: replyText,
           outgoing: [outgoing],
         };
       }
 
-      // 3. Check if it is a STAFF LIST command
-      const isStaffListQuery = /^(?:staff\s+list|list\s+staff|show\s+all\s+staff|show\s+staff|how\s+many\s+members(?:\s+do\s+(?:i|we)\s+have)?)$/i.test(cleanMsg);
-      if (isStaffListQuery) {
-        await prisma.botMessage.create({
-          data: {
-            direction: 'INCOMING',
-            channel: BotChannel.WHATSAPP,
-            fromUserId: senderUser.id,
-            fromPhone: cleanPhone,
-            rawText: originalTextBody,
-            messageType: 'TEXT',
-            status: 'RECEIVED',
-            providerMessageId,
-          },
-        });
-
-        if (!contact || !contact.isVerified) {
-          const replyText = 'Error: Unauthorized. Only registered and verified users can view the staff list.';
-          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-          return {
-            status: 'failed',
-            message: replyText,
-            outgoing: [outgoing],
-          };
-        }
-
-        const replyText = await BotStaffService.listStaff();
-        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-        return {
-          status: 'success',
-          message: replyText,
-          outgoing: [outgoing],
-        };
-      }
-
-      // 4. Check if it is an AG STAFF LIST command
-      const isAGStaffListQuery = /^(?:list\s+ag\s+staff|ag\s+staff)$/i.test(cleanMsg);
-      if (isAGStaffListQuery) {
-        await prisma.botMessage.create({
-          data: {
-            direction: 'INCOMING',
-            channel: BotChannel.WHATSAPP,
-            fromUserId: senderUser.id,
-            fromPhone: cleanPhone,
-            rawText: originalTextBody,
-            messageType: 'TEXT',
-            status: 'RECEIVED',
-            providerMessageId,
-          },
-        });
-
-        if (!contact || !contact.isVerified) {
-          const replyText = 'Error: Unauthorized. Only registered and verified users can view the AG staff list.';
-          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-          return {
-            status: 'failed',
-            message: replyText,
-            outgoing: [outgoing],
-          };
-        }
-
-        const replyText = await BotStaffService.listAGStaff();
-        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-        return {
-          status: 'success',
-          message: replyText,
-          outgoing: [outgoing],
-        };
-      }
-
-      // 5. Check if it is an OWNERS LIST command
-      const isOwnersListQuery = /^(?:owners|list\s+owners)$/i.test(cleanMsg);
-      if (isOwnersListQuery) {
-        await prisma.botMessage.create({
-          data: {
-            direction: 'INCOMING',
-            channel: BotChannel.WHATSAPP,
-            fromUserId: senderUser.id,
-            fromPhone: cleanPhone,
-            rawText: originalTextBody,
-            messageType: 'TEXT',
-            status: 'RECEIVED',
-            providerMessageId,
-          },
-        });
-
-        if (!contact || !contact.isVerified) {
-          const replyText = 'Error: Unauthorized. Only registered and verified users can view the owners list.';
-          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-          return {
-            status: 'failed',
-            message: replyText,
-            outgoing: [outgoing],
-          };
-        }
-
-        const replyText = await BotStaffService.listOwners();
-        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-        return {
-          status: 'success',
-          message: replyText,
-          outgoing: [outgoing],
-        };
-      }
-
-      // 6. Check if it is a reply command
-      const replyCommand = BotReplyParser.parse(textToProcess);
-      if (replyCommand) {
-        await prisma.botMessage.create({
-          data: {
-            direction: 'INCOMING',
-            channel: BotChannel.WHATSAPP,
-            fromUserId: senderUser.id,
-            fromPhone: cleanPhone,
-            rawText: originalTextBody,
-            messageType: 'TEXT',
-            status: 'RECEIVED',
-            providerMessageId,
-          },
-        });
-
-        return await BotReplyService.executeReplyCommand(
-          senderUser,
-          replyCommand,
-          cleanPhone,
-          providerMessageId
+      // Execute database operations if requested by AI
+      let notifications: any[] = [];
+      if (translation.dbOperations && translation.dbOperations.length > 0) {
+        const opResult = await LlmService.executeDbOperations(
+          translation.dbOperations,
+          senderUser.id,
+          senderUser.name
         );
+        notifications = opResult.notifications;
       }
 
-      // 7. Check if it is a fleet info query
-      const fleetQuery = BotFleetParser.parse(textToProcess);
-      if (fleetQuery) {
-        await prisma.botMessage.create({
-          data: {
-            direction: 'INCOMING',
-            channel: BotChannel.WHATSAPP,
-            fromUserId: senderUser.id,
-            fromPhone: cleanPhone,
-            rawText: originalTextBody,
-            messageType: 'TEXT',
-            status: 'RECEIVED',
-            providerMessageId,
-          },
-        });
+      const replyText = translation.directResponse || "I understood your message but had trouble generating a response. Please try again.";
+      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
 
-        const replyText = await BotFleetService.executeQuery(fleetQuery, senderUser.id);
-        
-        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-
-        return {
-          status: 'success',
-          message: replyText,
-          outgoing: [outgoing],
-        };
-      }
-
-      return null;
-    };
-
-    // Run predefined check first (fast-path)
-    const fastPathResult = await runPredefinedCommands(textBody);
-    if (fastPathResult) {
-      return fastPathResult;
-    }
-
-    // LLM translation and scope validation
-    if (env.LLAMA_API_URL) {
-      try {
-        const translation = await LlmService.translateMessage(textBody, senderUser.id, senderUser.name, senderUser.role);
-        if (!translation.isERPRelated) {
-          await prisma.botMessage.create({
-            data: {
-              direction: 'INCOMING',
-              channel: BotChannel.WHATSAPP,
-              fromUserId: senderUser.id,
-              fromPhone: cleanPhone,
-              rawText: originalTextBody,
-              messageType: 'TEXT',
-              status: 'RECEIVED',
-              providerMessageId,
-            },
-          });
-
-          const replyText = "I am an ERP assistant and can only help with ERP tasks like scheduling, vessel updates, and staff queries. Please ask an office-related question.";
-          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-          return {
-            status: 'failed',
-            message: replyText,
-            outgoing: [outgoing],
-          };
-        } else if (translation.directResponse || (translation.dbOperations && translation.dbOperations.length > 0)) {
-          // Execute database operations if requested by AI
-          let notifications: any[] = [];
-          if (translation.dbOperations && translation.dbOperations.length > 0) {
-            const opResult = await LlmService.executeDbOperations(translation.dbOperations, senderUser.id, senderUser.name);
-            notifications = opResult.notifications;
-          }
-
-          // Log incoming BotMessage with original text
-          await prisma.botMessage.create({
-            data: {
-              direction: 'INCOMING',
-              channel: BotChannel.WHATSAPP,
-              fromUserId: senderUser.id,
-              fromPhone: cleanPhone,
-              rawText: originalTextBody,
-              messageType: 'TEXT',
-              status: 'RECEIVED',
-              providerMessageId,
-            },
-          });
-
-          const replyText = translation.directResponse || "I have processed your request.";
-          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-
-          // Dispatch and log generated notifications
-          const outgoingNotifications: any[] = [];
-          for (const n of notifications) {
-            if (n.toPhone) {
-              let outgoingNotif;
-              if (n.messageType === 'INTERACTIVE_BUTTON' && n.taskId) {
-                outgoingNotif = await this.sendWhatsAppTaskButtonsAndLog(
-                  n.toUserId || null,
-                  n.toPhone,
-                  n.rawText,
-                  n.taskId
-                );
-              } else {
-                outgoingNotif = await this.sendWhatsAppAndLog(
-                  n.toUserId || null,
-                  n.toPhone,
-                  n.rawText
-                );
-              }
-              outgoingNotifications.push(outgoingNotif);
-            }
-          }
-
-          return {
-            status: 'success',
-            message: translation.directResponse,
-            outgoing: [outgoing, ...outgoingNotifications],
-          };
-        }
-      } catch (err) {
-        console.error('[LlmService] Error during translation, falling back to raw message:', err);
-      }
-    }
-
-    // Log incoming BotMessage for fallback command execution
-    await prisma.botMessage.create({
-      data: {
-        direction: 'INCOMING',
-        channel: BotChannel.WHATSAPP,
-        fromUserId: senderUser.id,
-        fromPhone: cleanPhone,
-        rawText: originalTextBody,
-        messageType: 'TEXT',
-        status: 'RECEIVED',
-        providerMessageId,
-      },
-    });
-
-    // Call processCommand in Bot Core
-    const result = await BotService.processCommand(currentText, senderUser, {
-      channel: BotChannel.WHATSAPP,
-      fromPhone: cleanPhone,
-      providerMessageId,
-    });
-
-    if (result.status === 'success' && result.data) {
-      const notifications = result.data.notifications;
-      const outgoingMessages: any[] = [];
+      // Dispatch and log generated notifications
+      const outgoingNotifications: any[] = [];
       for (const n of notifications) {
         if (n.toPhone) {
-          const cleanToPhone = this.normalizePhone(n.toPhone);
-          const recipientContact = await prisma.userContact.findFirst({
-            where: { phoneNumber: cleanToPhone, channel: BotChannel.WHATSAPP },
-          });
-          const recipientId = recipientContact ? recipientContact.userId : null;
-          
-          let outgoing;
+          let outgoingNotif;
           if (n.messageType === 'INTERACTIVE_BUTTON' && n.taskId) {
-            outgoing = await this.sendWhatsAppTaskButtonsAndLog(
-              recipientId,
-              cleanToPhone,
+            outgoingNotif = await this.sendWhatsAppTaskButtonsAndLog(
+              n.toUserId || null,
+              n.toPhone,
               n.rawText,
               n.taskId
             );
           } else {
-            outgoing = await this.sendWhatsAppAndLog(recipientId, cleanToPhone, n.rawText);
+            outgoingNotif = await this.sendWhatsAppAndLog(
+              n.toUserId || null,
+              n.toPhone,
+              n.rawText
+            );
           }
-          outgoingMessages.push(outgoing);
+          outgoingNotifications.push(outgoingNotif);
         }
       }
-      return {
-        ...result,
-        outgoing: outgoingMessages,
-      };
-    } else {
-      const replyText = result.message || 'Command execution failed.';
-      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
 
       return {
-        status: result.status,
+        status: 'success',
+        message: translation.directResponse,
+        outgoing: [outgoing, ...outgoingNotifications],
+      };
+    } catch (err) {
+      console.error('[WhatsAppService] Error during LLM processing:', err);
+
+      // Log incoming message even on error
+      await prisma.botMessage.create({
+        data: {
+          direction: 'INCOMING',
+          channel: BotChannel.WHATSAPP,
+          fromUserId: senderUser.id,
+          fromPhone: cleanPhone,
+          rawText: originalTextBody,
+          messageType: 'TEXT',
+          status: 'RECEIVED',
+          providerMessageId,
+        },
+      });
+
+      const replyText = "Sorry, I'm having trouble processing your request right now. Please try again in a moment.";
+      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+      return {
+        status: 'error',
         message: replyText,
-        command: result.command,
-        options: result.options,
         outgoing: [outgoing],
       };
     }
