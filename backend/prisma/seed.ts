@@ -29,11 +29,12 @@ async function main() {
   // 1. Seed Users with @apil.local email domains
   const usersData = [
     {
-      name: 'Owner Admin',
+      name: 'Bhavya',
       email: 'owner@apil.local',
       passwordHash,
       role: Role.OWNER,
-      department: 'Management',
+      department: 'Developer',
+      phone: '917046674776',
     },
     {
       name: 'Jaman Fadadu',
@@ -41,6 +42,7 @@ async function main() {
       passwordHash,
       role: Role.ACCOUNTS,
       department: 'Accounts',
+      phone: '919427574363',
     },
     {
       name: 'Hardik Chavda',
@@ -48,6 +50,7 @@ async function main() {
       passwordHash,
       role: Role.ACCOUNTS,
       department: 'Accounts',
+      phone: '919898499903',
     },
     {
       name: 'Praful Joshi',
@@ -55,6 +58,7 @@ async function main() {
       passwordHash,
       role: Role.ACCOUNTS,
       department: 'Accounts',
+      phone: '917698026808',
     },
     {
       name: 'Parag Dungrani',
@@ -62,6 +66,7 @@ async function main() {
       passwordHash,
       role: Role.STAFF,
       department: 'Banking',
+      phone: '917600748296',
     },
     {
       name: 'Deven Chavda',
@@ -69,6 +74,7 @@ async function main() {
       passwordHash,
       role: Role.STAFF,
       department: 'Customs',
+      phone: '918980038545',
     },
     {
       name: 'Dhaval Joisar',
@@ -76,6 +82,7 @@ async function main() {
       passwordHash,
       role: Role.FLEET_MANAGER,
       department: 'Fleet',
+      phone: '918140653663',
     },
     {
       name: 'Gunvant',
@@ -83,6 +90,7 @@ async function main() {
       passwordHash,
       role: Role.STAFF,
       department: 'Manufacturing',
+      phone: '919824269016',
     },
     {
       name: 'Hardik Kateshiya',
@@ -90,6 +98,7 @@ async function main() {
       passwordHash,
       role: Role.STAFF,
       department: 'Purchase',
+      phone: '918347975555',
     },
     {
       name: 'Manager Admin',
@@ -97,6 +106,14 @@ async function main() {
       passwordHash,
       role: Role.MANAGER,
       department: 'Management',
+    },
+    {
+      name: 'Vinit Shah',
+      email: 'vinit@apil.local',
+      passwordHash,
+      role: Role.OWNER,
+      department: 'Management',
+      phone: '919913810000',
     },
     // AG Staff group
     {
@@ -122,6 +139,14 @@ async function main() {
       role: Role.STAFF,
       department: 'AG',
       phone: '919256009840',
+    },
+    {
+      name: 'New Test Member',
+      email: 'newtestmember@apil.local',
+      passwordHash,
+      role: Role.STAFF,
+      department: 'AG',
+      phone: '919999988888',
     },
     {
       name: 'Prakash Gayari',
@@ -196,6 +221,7 @@ async function main() {
     const dbUser = await prisma.user.upsert({
       where: { email: u.email },
       update: {
+        name: u.name,
         role: u.role,
         department: u.department,
       },
@@ -203,6 +229,15 @@ async function main() {
     });
 
     if (phone) {
+      // Remove any other WhatsApp phone number contacts for this user to avoid multiple contacts accumulating
+      await prisma.userContact.deleteMany({
+        where: {
+          userId: dbUser.id,
+          channel: 'WHATSAPP',
+          phoneNumber: { not: phone },
+        },
+      });
+
       await prisma.userContact.upsert({
         where: {
           userId_phoneNumber_channel: {
