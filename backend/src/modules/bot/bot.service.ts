@@ -2,6 +2,7 @@ import prisma from '../../config/db';
 import { AppError } from '../../middleware/error';
 import { Role, BotChannel, BotMessageDirection, BotCommandStatus, BotReminderStatus } from '@prisma/client';
 import { BotParser } from './bot.parser';
+import { LlmService } from './llm.service';
 
 export class BotService {
   /**
@@ -43,10 +44,50 @@ export class BotService {
       },
     });
 
-    // 2. Parse command
+    // 2. Try LLM translation if configured
+    try {
+      const translation = await LlmService.translateMessage(
+        messageText,
+        sender.id,
+        sender.name,
+        sender.role
+      );
+
+      if (!translation.isERPRelated) {
+        return {
+          status: 'failed',
+          message: 'I am an ERP assistant and can only help with ERP tasks like scheduling, vessel updates, and staff queries. Please ask an office-related question.',
+        };
+      }
+
+      if (translation.directResponse) {
+        // Execute database operations if requested by AI
+        let notifications: any[] = [];
+        if (translation.dbOperations && translation.dbOperations.length > 0) {
+          const opResult = await LlmService.executeDbOperations(
+            translation.dbOperations,
+            sender.id,
+            sender.name
+          );
+          notifications = opResult.notifications;
+        }
+
+        return {
+          status: 'success',
+          message: translation.directResponse,
+          data: {
+            notifications,
+          },
+        };
+      }
+    } catch (err) {
+      console.error('[BotService] Error during LLM translation, falling back to legacy command parser:', err);
+    }
+
+    // 3. Fallback: Parse command using legacy Regex parser (if LLM offline/not configured)
     const parsed = BotParser.parse(messageText);
 
-    // 3. Resolve assignee
+    // 4. Resolve assignee
     if (!parsed.assigneeName) {
       const command = await prisma.botCommand.create({
         data: {
@@ -68,7 +109,7 @@ export class BotService {
 
     const candidates = await BotService.resolveAssignee(parsed.assigneeName);
 
-    // 4. Resolve flow outcomes
+    // 5. Resolve flow outcomes
     // Case A: No matches
     if (candidates.length === 0) {
       const command = await prisma.botCommand.create({

@@ -1012,15 +1012,6 @@ export class WhatsAppService {
             message: translation.directResponse,
             outgoing: [outgoing, ...outgoingNotifications],
           };
-        } else if (translation.extractedCommand) {
-          console.log(`[LlmService] Natural language: "${textBody}" -> Command: "${translation.extractedCommand}"`);
-          currentText = translation.extractedCommand;
-
-          // Re-evaluate the extracted command against predefined commands
-          const extractedResult = await runPredefinedCommands(currentText);
-          if (extractedResult) {
-            return extractedResult;
-          }
         }
       } catch (err) {
         console.error('[LlmService] Error during translation, falling back to raw message:', err);

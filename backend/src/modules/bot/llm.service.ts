@@ -4,7 +4,6 @@ import { BotStaffService } from './bot.staff-service';
 
 export interface LlmTranslation {
   isERPRelated: boolean;
-  extractedCommand: string | null;
   directResponse: string | null;
   dbOperations?: {
     action: string;
@@ -503,7 +502,7 @@ export class LlmService {
   ): Promise<LlmTranslation> {
     if (!env.LLAMA_API_URL) {
       console.log('[LlmService] LLAMA_API_URL is not configured. Skipping LLM translation.');
-      return { isERPRelated: true, extractedCommand: messageText, directResponse: null };
+      return { isERPRelated: true, directResponse: null };
     }
 
     const [dbContext, history] = await Promise.all([
@@ -521,14 +520,14 @@ ${dbContext}
 CRITICAL RULES — STRICT MODE — READ CAREFULLY
 ═══════════════════════════════════════════════════════
 
-RULE 1 — TASK CREATION (ONLY when explicitly commanded):
-A task can ONLY be created when the user says something like:
-  "tell X to do Y", "ask X to do Y", "remind X about Y", "assign a task to X", "create a task for X to do Y"
-The message MUST contain:
-  (a) An explicit ASSIGNEE name (a person from the STAFF list)
-  (b) An explicit ACTION / DESCRIPTION (what to do)
-If dueDate is missing, ask: "What is the deadline for this task?"
-If assignee or action is missing, ask the user to clarify.
+RULE 1 — TASK CREATION:
+When the user explicitly asks to assign, create, or request someone to do something (e.g. "tell X to do Y", "assign a task to X to do Y", "X needs to do Y"):
+  - Create the task in the database using the "createTask" operation.
+  - The task parameters MUST contain:
+    (a) An explicit ASSIGNEE name (a person from the STAFF list)
+    (b) An explicit ACTION / DESCRIPTION (what to do)
+  - If dueDate is missing, default to tomorrow or ask: "What is the deadline for this task?"
+  - If assignee or action is missing, ask the user to clarify.
 
 RULE 2 — NEVER CREATE TASKS FROM CASUAL CONVERSATION:
 ABSOLUTELY DO NOT create tasks from:
@@ -565,7 +564,6 @@ RESPONSE FORMAT — JSON ONLY
 Reply with ONLY this JSON (no extra text):
 {
   "isERPRelated": boolean,
-  "extractedCommand": string | null,
   "directResponse": string | null,
   "dbOperations": [
     {
@@ -588,7 +586,7 @@ IMPORTANT:
 - For informational queries, set "dbOperations" to null and answer in "directResponse".
 - For casual conversation, set "dbOperations" to null and reply naturally in "directResponse".
 - NEVER fabricate data. If info is not in the context, say "I don't have that information."
-- When the user's message does NOT match Rule 1 patterns, ALWAYS default to a conversational reply in "directResponse" with NO dbOperations.`;
+- When the user's message does NOT match explicit commands or queries, ALWAYS default to a conversational reply in "directResponse" with NO dbOperations.`;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -620,7 +618,7 @@ IMPORTANT:
       if (!response.ok) {
         const errText = await response.text();
         console.error(`[LlmService] Ollama API error: ${response.status} - ${errText}`);
-        return { isERPRelated: true, extractedCommand: messageText, directResponse: null };
+        return { isERPRelated: true, directResponse: null };
       }
 
       const resJson: any = await response.json();
@@ -632,20 +630,19 @@ IMPORTANT:
       const match = rawContent.match(/\{[\s\S]*\}/);
       if (!match) {
         console.warn('[LlmService] Failed to extract JSON block from LLM response.');
-        return { isERPRelated: true, extractedCommand: messageText, directResponse: null };
+        return { isERPRelated: true, directResponse: null };
       }
 
       const parsed = JSON.parse(match[0]) as LlmTranslation;
       return {
         isERPRelated: typeof parsed.isERPRelated === 'boolean' ? parsed.isERPRelated : true,
-        extractedCommand: parsed.extractedCommand || null,
         directResponse: parsed.directResponse || null,
         dbOperations: parsed.dbOperations || null
       };
 
     } catch (err: any) {
       console.error('[LlmService] Exception during LLM query:', err);
-      return { isERPRelated: true, extractedCommand: messageText, directResponse: null };
+      return { isERPRelated: true, directResponse: null };
     }
   }
 }
