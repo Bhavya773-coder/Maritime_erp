@@ -10,7 +10,7 @@ const router = (0, express_1.Router)();
 // Middleware to validate UUID vessel ID params
 const validateVesselId = (req, res, next) => {
     const { id } = req.params;
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const uuidRegex = /^[0-9a-f]{24}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (id && !uuidRegex.test(id)) {
         return res.status(400).json({
             status: 'error',

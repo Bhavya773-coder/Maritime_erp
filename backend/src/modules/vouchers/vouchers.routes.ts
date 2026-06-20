@@ -29,7 +29,7 @@ const router = Router();
 // Middleware to validate UUID parameter for ID path
 const validateVoucherId = (req: Request, res: Response, next: NextFunction) => {
   const { id } = req.params;
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const uuidRegex = /^[0-9a-f]{24}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   if (id && !uuidRegex.test(id)) {
     return res.status(400).json({

@@ -22,7 +22,7 @@ export const createTaskSchema = z.object({
     taskType: z.nativeEnum(TaskType, {
       required_error: 'Task type is required',
     }),
-    assignedToId: z.string().uuid('Invalid assignee ID format').optional().nullable(),
+    assignedToId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid assignee ID format').optional().nullable(),
     dueDate: z.string().transform((val, ctx) => {
       try {
         return parseDateString(val);
@@ -82,7 +82,7 @@ export const updateStatusSchema = z.object({
 
 export const delegateTaskSchema = z.object({
   body: z.object({
-    assignedToId: z.string().uuid('Invalid assignee ID format'),
+    assignedToId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid assignee ID format'),
     note: z.string().optional(),
   }),
 });

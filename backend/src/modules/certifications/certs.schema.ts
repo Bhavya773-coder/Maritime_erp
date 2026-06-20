@@ -6,7 +6,7 @@ const dateSchema = z.string().refine(val => !isNaN(Date.parse(val)), {
 
 export const createCertSchema = z.object({
   body: z.object({
-    vesselId: z.string().uuid('Invalid vessel ID').nullable().optional(),
+    vesselId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid vessel ID').nullable().optional(),
     assetType: z.string().min(1, 'Asset type cannot be empty').max(100, 'Asset type cannot exceed 100 characters').nullable().optional(),
     certType: z.string().min(1, 'Certificate type is required').max(150, 'Certificate type cannot exceed 150 characters'),
     certNumber: z.string().min(1, 'Certificate number is required').max(150, 'Certificate number cannot exceed 150 characters'),
@@ -29,7 +29,7 @@ export const createCertSchema = z.object({
 
 export const updateCertSchema = z.object({
   body: z.object({
-    vesselId: z.string().uuid('Invalid vessel ID').nullable().optional(),
+    vesselId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid vessel ID').nullable().optional(),
     assetType: z.string().min(1, 'Asset type cannot be empty').max(100, 'Asset type cannot exceed 100 characters').nullable().optional(),
     certType: z.string().min(1, 'Certificate type cannot be empty').max(150, 'Certificate type cannot exceed 150 characters').optional(),
     certNumber: z.string().min(1, 'Certificate number cannot be empty').max(150, 'Certificate number cannot exceed 150 characters').optional(),
@@ -42,7 +42,7 @@ export const updateCertSchema = z.object({
 
 export const getCertsQuerySchema = z.object({
   query: z.object({
-    vesselId: z.string().uuid('Invalid vessel ID').optional(),
+    vesselId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid vessel ID').optional(),
     assetType: z.string().optional(),
     certType: z.string().optional(),
     status: z.string().optional().transform(val => {

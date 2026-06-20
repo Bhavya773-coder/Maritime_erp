@@ -21,7 +21,7 @@ router.use('/whatsapp', whatsappRoutes);
 // Middleware to validate UUID reminder ID params
 const validateReminderId = (req: Request, res: Response, next: NextFunction) => {
   const { id } = req.params;
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const uuidRegex = /^[0-9a-f]{24}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   
   if (id && !uuidRegex.test(id)) {
     return res.status(400).json({

@@ -9,12 +9,12 @@ export class BotReplyParser {
   public static parse(text: string): ReplyCommand | null {
     if (!text) return null;
 
-    // 1. Extract UUID if present (Task ID)
-    const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
-    const uuidMatch = text.match(uuidRegex);
-    const targetTaskId = uuidMatch ? uuidMatch[0] : undefined;
+    // 1. Extract Task ID if present (UUID or MongoDB ObjectId)
+    const idRegex = /[0-9a-f]{24}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+    const idMatch = text.match(idRegex);
+    const targetTaskId = idMatch ? idMatch[0] : undefined;
 
-    // Remove the UUID from the string to clean the command part
+    // Remove the ID from the string to clean the command part
     let cleanedText = text;
     if (targetTaskId) {
       cleanedText = text.replace(targetTaskId, '');

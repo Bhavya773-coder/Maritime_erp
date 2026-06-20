@@ -70,8 +70,8 @@ export const getVouchersQuerySchema = z.object({
       return undefined;
     }),
     expenseType: z.string().optional(),
-    submittedById: z.string().uuid('Invalid submitter ID').optional(),
-    employeeId: z.string().uuid('Invalid employee ID').optional(),
+    submittedById: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid submitter ID').optional(),
+    employeeId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid employee ID').optional(),
     dateFrom: z.string().optional().transform(val => val ? new Date(val) : undefined),
     dateTo: z.string().optional().transform(val => val ? new Date(val) : undefined),
     search: z.string().optional()
@@ -89,7 +89,7 @@ export const exportVouchersQuerySchema = z.object({
       return undefined;
     }),
     expenseType: z.string().optional(),
-    employeeId: z.string().uuid('Invalid employee ID').optional(),
+    employeeId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid employee ID').optional(),
     dateFrom: z.string().optional().transform(val => val ? new Date(val) : undefined),
     dateTo: z.string().optional().transform(val => val ? new Date(val) : undefined)
   })

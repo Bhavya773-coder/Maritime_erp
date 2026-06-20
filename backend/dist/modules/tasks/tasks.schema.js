@@ -23,7 +23,7 @@ exports.createTaskSchema = zod_1.z.object({
         taskType: zod_1.z.nativeEnum(client_1.TaskType, {
             required_error: 'Task type is required',
         }),
-        assignedToId: zod_1.z.string().uuid('Invalid assignee ID format').optional().nullable(),
+        assignedToId: zod_1.z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid assignee ID format').optional().nullable(),
         dueDate: zod_1.z.string().transform((val, ctx) => {
             try {
                 return parseDateString(val);
@@ -83,7 +83,7 @@ exports.updateStatusSchema = zod_1.z.object({
 });
 exports.delegateTaskSchema = zod_1.z.object({
     body: zod_1.z.object({
-        assignedToId: zod_1.z.string().uuid('Invalid assignee ID format'),
+        assignedToId: zod_1.z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid assignee ID format'),
         note: zod_1.z.string().optional(),
     }),
 });

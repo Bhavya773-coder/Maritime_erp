@@ -1,7 +1,6 @@
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -61,12 +60,12 @@ enum VoucherStatus {
 }
 
 model User {
-  id                    String                  @id @default(uuid()) @db.Uuid
-  name                  String                  @db.VarChar(100)
-  email                 String                  @unique @db.VarChar(150)
-  passwordHash          String                  @map("password_hash") @db.Text
+  id                    String                  @id @default(auto()) @map("_id") @db.ObjectId
+  name                  String
+  email                 String                  @unique
+  passwordHash          String                  @map("password_hash")
   role                  Role
-  department            String?                 @db.VarChar(100)
+  department            String?
   isActive              Boolean                 @default(true) @map("is_active")
   createdAt             DateTime                @default(now()) @map("created_at")
   updatedAt             DateTime                @updatedAt @map("updated_at")
@@ -92,15 +91,15 @@ model User {
 }
 
 model Task {
-  id           String              @id @default(uuid()) @db.Uuid
+  id           String              @id @default(auto()) @map("_id") @db.ObjectId
   taskType     TaskType            @map("task_type")
-  title        String              @db.VarChar(255)
-  description  String?             @db.Text
-  createdById  String              @map("created_by_id") @db.Uuid
+  title        String
+  description  String?
+  createdById  String              @map("created_by_id") @db.ObjectId
   creator      User                @relation("TaskCreator", fields: [createdById], references: [id])
-  assignedToId String?             @map("assigned_to_id") @db.Uuid
+  assignedToId String?             @map("assigned_to_id") @db.ObjectId
   assignee     User?               @relation("TaskAssignee", fields: [assignedToId], references: [id])
-  dueDate      DateTime            @map("due_date") @db.Date
+  dueDate      DateTime            @map("due_date")
   priority     Priority
   status       TaskStatus          @default(PENDING)
   completedAt  DateTime?           @map("completed_at")
@@ -123,15 +122,15 @@ model Task {
 }
 
 model TaskDelegationLog {
-  id           String   @id @default(uuid()) @db.Uuid
-  taskId       String   @map("task_id") @db.Uuid
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  taskId       String   @map("task_id") @db.ObjectId
   task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  fromUserId   String   @map("from_user_id") @db.Uuid
+  fromUserId   String   @map("from_user_id") @db.ObjectId
   fromUser     User     @relation("DelegatedFrom", fields: [fromUserId], references: [id])
-  toUserId     String   @map("to_user_id") @db.Uuid
+  toUserId     String   @map("to_user_id") @db.ObjectId
   toUser       User     @relation("DelegatedTo", fields: [toUserId], references: [id])
   delegatedAt  DateTime @default(now()) @map("delegated_at")
-  note         String?  @db.Text
+  note         String?
 
   @@index([taskId])
   @@index([fromUserId])
@@ -140,12 +139,12 @@ model TaskDelegationLog {
 }
 
 model TaskComment {
-  id        String   @id @default(uuid()) @db.Uuid
-  taskId    String   @map("task_id") @db.Uuid
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  taskId    String   @map("task_id") @db.ObjectId
   task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  userId    String   @map("user_id") @db.Uuid
+  userId    String   @map("user_id") @db.ObjectId
   user      User     @relation(fields: [userId], references: [id])
-  content   String   @db.Text
+  content   String
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([taskId])
@@ -154,22 +153,22 @@ model TaskComment {
 }
 
 model Vessel {
-  id              String                  @id @default(uuid()) @db.Uuid
-  name            String                  @db.VarChar(150)
-  registrationNo  String                  @unique @map("registration_no") @db.VarChar(100)
+  id              String                  @id @default(auto()) @map("_id") @db.ObjectId
+  name            String
+  registrationNo  String                  @unique @map("registration_no")
   type            VesselType
-  currentLocation String                  @map("current_location") @db.VarChar(255)
-  latitude        Decimal?                @db.Decimal(9, 6)
-  longitude       Decimal?                @db.Decimal(9, 6)
+  currentLocation String                  @map("current_location")
+  latitude        Float?
+  longitude       Float?
   status          VesselStatus
-  classification  String?                 @db.VarChar(150)
+  classification  String?
   buildYear       Int?                    @map("build_year")
-  length          Decimal?                @db.Decimal(6, 2)
-  breadth         Decimal?                @db.Decimal(6, 2)
-  depth           Decimal?                @db.Decimal(6, 2)
-  irsIv           String?                 @map("irs_iv") @db.VarChar(50)
-  remark          String?                 @db.Text
-  updatedById     String?                 @map("updated_by_id") @db.Uuid
+  length          Float?
+  breadth         Float?
+  depth           Float?
+  irsIv           String?                 @map("irs_iv")
+  remark          String?
+  updatedById     String?                 @map("updated_by_id") @db.ObjectId
   updatedBy       User?                   @relation("VesselUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
   updatedAt       DateTime                @updatedAt @map("updated_at")
   deletedAt       DateTime?               @map("deleted_at")
@@ -185,13 +184,13 @@ model Vessel {
 }
 
 model VesselLocationHistory {
-  id         String   @id @default(uuid()) @db.Uuid
-  vesselId   String   @map("vessel_id") @db.Uuid
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  vesselId   String   @map("vessel_id") @db.ObjectId
   vessel     Vessel   @relation(fields: [vesselId], references: [id], onDelete: Cascade)
-  location   String   @db.VarChar(255)
-  latitude   Decimal? @db.Decimal(9, 6)
-  longitude  Decimal? @db.Decimal(9, 6)
-  updatedById String   @map("updated_by_id") @db.Uuid
+  location   String
+  latitude   Float?
+  longitude  Float?
+  updatedById String   @map("updated_by_id") @db.ObjectId
   updatedBy  User     @relation("LocationUpdater", fields: [updatedById], references: [id])
   updatedAt  DateTime @default(now()) @map("updated_at")
 
@@ -201,16 +200,16 @@ model VesselLocationHistory {
 }
 
 model Certification {
-  id               String            @id @default(uuid()) @db.Uuid
-  vesselId         String?           @map("vessel_id") @db.Uuid
+  id               String            @id @default(auto()) @map("_id") @db.ObjectId
+  vesselId         String?           @map("vessel_id") @db.ObjectId
   vessel           Vessel?           @relation(fields: [vesselId], references: [id], onDelete: SetNull)
-  assetType        String?           @map("asset_type") @db.VarChar(100)
-  certType         String            @map("cert_type") @db.VarChar(150)
-  certNumber       String            @map("cert_number") @db.VarChar(150)
-  issuingAuthority String            @map("issuing_authority") @db.VarChar(200)
-  issueDate        DateTime          @map("issue_date") @db.Date
-  expiryDate       DateTime          @map("expiry_date") @db.Date
-  documentUrl      String?           @map("document_url") @db.Text
+  assetType        String?           @map("asset_type")
+  certType         String            @map("cert_type")
+  certNumber       String            @map("cert_number")
+  issuingAuthority String            @map("issuing_authority")
+  issueDate        DateTime          @map("issue_date")
+  expiryDate       DateTime          @map("expiry_date")
+  documentUrl      String?           @map("document_url")
   status           CertificateStatus @default(VALID)
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
@@ -225,8 +224,8 @@ model Certification {
 }
 
 model CertAlertLog {
-  id            String        @id @default(uuid()) @db.Uuid
-  certificateId String        @map("certificate_id") @db.Uuid
+  id            String        @id @default(auto()) @map("_id") @db.ObjectId
+  certificateId String        @map("certificate_id") @db.ObjectId
   certificate   Certification @relation(fields: [certificateId], references: [id], onDelete: Cascade)
   alertWindow   Int           @map("alert_window")
   sentAt        DateTime      @default(now()) @map("sent_at")
@@ -237,22 +236,21 @@ model CertAlertLog {
 }
 
 model ExpenseVoucher {
-  id             String        @id @default(uuid()) @db.Uuid
-  submittedById  String        @map("submitted_by_id") @db.Uuid
+  id             String        @id @default(auto()) @map("_id") @db.ObjectId
+  submittedById  String        @map("submitted_by_id") @db.ObjectId
   submittedBy    User          @relation("VoucherSubmitter", fields: [submittedById], references: [id])
-  expenseType    String        @map("expense_type") @db.VarChar(100)
-  amount         Decimal       @db.Decimal(12, 2)
-  expenseDate    DateTime      @map("expense_date") @db.Date
-  vendorName     String        @map("vendor_name") @db.VarChar(200)
-  description    String?       @db.Text
+  expenseType    String        @map("expense_type")
+  amount         Float
+  expenseDate    DateTime      @map("expense_date")
+  vendorName     String        @map("vendor_name")
+  description    String?
   receiptUrls    String[]      @map("receipt_urls")
   status         VoucherStatus @default(PENDING)
-  approvedById   String?       @map("approved_by_id") @db.Uuid
+  approvedById   String?       @map("approved_by_id") @db.ObjectId
   approvedBy     User?         @relation("VoucherApprover", fields: [approvedById], references: [id], onDelete: SetNull)
-  approverNote   String?       @map("approver_note") @db.Text
+  approverNote   String?       @map("approver_note")
   submittedAt    DateTime      @default(now()) @map("submitted_at")
   actionedAt     DateTime?     @map("actioned_at")
-
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
   @@index([submittedById])
@@ -265,11 +263,11 @@ model ExpenseVoucher {
 }
 
 model AuditLog {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String?  @map("user_id") @db.Uuid
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String?  @map("user_id") @db.ObjectId
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action    String   @db.VarChar(255)
-  details   String   @db.Text
+  action    String
+  details   String
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([userId])
@@ -277,11 +275,11 @@ model AuditLog {
 }
 
 model Notification {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @map("user_id") @db.ObjectId
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title     String   @db.VarChar(255)
-  message   String   @db.Text
+  title     String
+  message   String
   isRead    Boolean  @default(false) @map("is_read")
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -317,10 +315,10 @@ enum BotReminderStatus {
 }
 
 model UserContact {
-  id          String     @id @default(uuid()) @db.Uuid
-  userId      String     @map("user_id") @db.Uuid
+  id          String     @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String     @map("user_id") @db.ObjectId
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  phoneNumber String     @map("phone_number") @db.VarChar(50)
+  phoneNumber String     @map("phone_number")
   channel     BotChannel @default(WHATSAPP)
   isVerified  Boolean    @default(false) @map("is_verified")
   createdAt   DateTime   @default(now()) @map("created_at")
@@ -331,19 +329,19 @@ model UserContact {
 }
 
 model BotMessage {
-  id                String              @id @default(uuid()) @db.Uuid
+  id                String              @id @default(auto()) @map("_id") @db.ObjectId
   direction         BotMessageDirection
   channel           BotChannel
-  fromUserId        String?             @map("from_user_id") @db.Uuid
+  fromUserId        String?             @map("from_user_id") @db.ObjectId
   fromUser          User?               @relation("BotMessageSender", fields: [fromUserId], references: [id], onDelete: SetNull)
-  toUserId          String?             @map("to_user_id") @db.Uuid
+  toUserId          String?             @map("to_user_id") @db.ObjectId
   toUser            User?               @relation("BotMessageReceiver", fields: [toUserId], references: [id], onDelete: SetNull)
-  fromPhone         String?             @map("from_phone") @db.VarChar(50)
-  toPhone           String?             @map("to_phone") @db.VarChar(50)
-  rawText           String              @map("raw_text") @db.Text
-  messageType       String              @default("TEXT") @map("message_type") @db.VarChar(50)
-  status            String              @default("PENDING") @db.VarChar(50)
-  providerMessageId String?             @map("provider_message_id") @db.VarChar(255)
+  fromPhone         String?             @map("from_phone")
+  toPhone           String?             @map("to_phone")
+  rawText           String              @map("raw_text")
+  messageType       String              @default("TEXT") @map("message_type")
+  status            String              @default("PENDING")
+  providerMessageId String?             @map("provider_message_id")
   createdAt         DateTime            @default(now()) @map("created_at")
 
   botCommands       BotCommand[]
@@ -356,13 +354,13 @@ model BotMessage {
 }
 
 model BotCommand {
-  id            String           @id @default(uuid()) @db.Uuid
-  botMessageId  String           @map("bot_message_id") @db.Uuid
+  id            String           @id @default(auto()) @map("_id") @db.ObjectId
+  botMessageId  String           @map("bot_message_id") @db.ObjectId
   botMessage    BotMessage       @relation(fields: [botMessageId], references: [id], onDelete: Cascade)
-  intent        String           @db.VarChar(100)
+  intent        String
   confidence    Float            @default(1.0)
   parsedJson    Json             @map("parsed_json")
-  linkedTaskId  String?          @map("linked_task_id") @db.Uuid
+  linkedTaskId  String?          @map("linked_task_id") @db.ObjectId
   linkedTask    Task?            @relation(fields: [linkedTaskId], references: [id], onDelete: SetNull)
   status        BotCommandStatus @default(PARSED)
   createdAt     DateTime         @default(now()) @map("created_at")
@@ -373,10 +371,10 @@ model BotCommand {
 }
 
 model BotReminder {
-  id             String            @id @default(uuid()) @db.Uuid
-  taskId         String            @map("task_id") @db.Uuid
+  id             String            @id @default(auto()) @map("_id") @db.ObjectId
+  taskId         String            @map("task_id") @db.ObjectId
   task           Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  assignedToId   String            @map("assigned_to_id") @db.Uuid
+  assignedToId   String            @map("assigned_to_id") @db.ObjectId
   assignedTo     User              @relation("BotReminderAssignee", fields: [assignedToId], references: [id], onDelete: Cascade)
   reminderType   BotReminderType   @default(TASK_PENDING) @map("reminder_type")
   frequencyHours Int               @default(24) @map("frequency_hours")
@@ -393,13 +391,13 @@ model BotReminder {
 }
 
 model VesselActivityLog {
-  id            String   @id @default(uuid()) @db.Uuid
-  vesselId      String   @map("vessel_id") @db.Uuid
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  vesselId      String   @map("vessel_id") @db.ObjectId
   vessel        Vessel   @relation(fields: [vesselId], references: [id], onDelete: Cascade)
-  activityType  String   @map("activity_type") @db.VarChar(50)
-  summary       String   @db.Text
-  relatedTaskId String?  @map("related_task_id") @db.Uuid
-  reportedById  String   @map("reported_by_id") @db.Uuid
+  activityType  String   @map("activity_type")
+  summary       String
+  relatedTaskId String?  @map("related_task_id") @db.ObjectId
+  reportedById  String   @map("reported_by_id") @db.ObjectId
   reportedBy    User     @relation("ActivityReporter", fields: [reportedById], references: [id])
   createdAt     DateTime @default(now()) @map("created_at")
 
@@ -409,13 +407,12 @@ model VesselActivityLog {
 }
 
 model BotSession {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @unique @map("user_id") @db.Uuid
-  state     String   @db.VarChar(100)
-  taskId    String?  @map("task_id") @db.Uuid
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @unique @map("user_id") @db.ObjectId
+  state     String
+  taskId    String?  @map("task_id") @db.ObjectId
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("bot_sessions")
 }
-
