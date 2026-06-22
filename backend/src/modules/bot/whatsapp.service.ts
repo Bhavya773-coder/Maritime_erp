@@ -89,13 +89,18 @@ export class WhatsAppService {
         }),
       });
 
+      const resBody = await response.json();
+
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[WhatsApp API Error] HTTP ${response.status}: ${errorText}`);
-        throw new Error(`WhatsApp API error: ${errorText}`);
+        console.error(`[WhatsApp API Error] HTTP ${response.status}: ${JSON.stringify(resBody)}`);
+        throw new Error(`WhatsApp API error: ${JSON.stringify(resBody)}`);
       }
 
-      return await response.json();
+      // Log the actual message ID for traceability
+      const msgId = (resBody as any)?.messages?.[0]?.id || 'unknown';
+      console.log(`[WhatsApp API] Text message accepted. wamid: ${msgId}, to: ${cleanPhone}`);
+
+      return resBody;
     } catch (err: any) {
       console.error('[WhatsApp Service Exception]', err);
       return { status: 'FAILED_SEND_FALLBACK_SIMULATED', error: err.message };
@@ -149,13 +154,17 @@ export class WhatsAppService {
         }),
       });
 
+      const resBody = await response.json();
+
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[WhatsApp API Template Error] HTTP ${response.status}: ${errorText}`);
-        throw new Error(`WhatsApp API template error: ${errorText}`);
+        console.error(`[WhatsApp API Template Error] HTTP ${response.status}: ${JSON.stringify(resBody)}`);
+        throw new Error(`WhatsApp API template error: ${JSON.stringify(resBody)}`);
       }
 
-      return await response.json();
+      const msgId = (resBody as any)?.messages?.[0]?.id || 'unknown';
+      console.log(`[WhatsApp API] Template message accepted. wamid: ${msgId}, to: ${cleanPhone}, template: ${templateName}`);
+
+      return resBody;
     } catch (err: any) {
       console.error('[WhatsApp Service Template Exception]', err);
       return { status: 'FAILED_SEND_FALLBACK_SIMULATED', error: err.message };
@@ -234,8 +243,14 @@ export class WhatsAppService {
     } else if (sendResult?.status === 'SIMULATED') {
       actualStatus = 'SIMULATED';
       console.log(`[WhatsAppService] SIMULATED message to ${cleanPhone}: "${messageText.substring(0, 60)}..."`);
+    } else if (sendResult?.messages?.[0]?.id) {
+      // Real API success with message ID
+      const msgId = sendResult.messages[0].id;
+      console.log(`[WhatsAppService] Message SENT to ${cleanPhone}. wamid: ${msgId}. Text: "${messageText.substring(0, 60)}..."`);
     } else {
-      console.log(`[WhatsAppService] Message SENT to ${cleanPhone}: "${messageText.substring(0, 60)}..."`);
+      // API returned something unexpected (possibly an error in the body)
+      actualStatus = 'FAILED';
+      console.error(`[WhatsAppService] Message FAILED to send to ${cleanPhone}. Unexpected API response: ${JSON.stringify(sendResult)}. Text: "${messageText.substring(0, 60)}..."`);
     }
 
     return await prisma.botMessage.create({
