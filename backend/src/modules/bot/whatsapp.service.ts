@@ -802,6 +802,7 @@ export class WhatsAppService {
 
       // Execute database operations if requested by AI
       let notifications: any[] = [];
+      let taskCreatedByLLM = false;
       if (translation.dbOperations && translation.dbOperations.length > 0) {
         const opResult = await LlmService.executeDbOperations(
           translation.dbOperations,
@@ -809,9 +810,18 @@ export class WhatsAppService {
           senderUser.name
         );
         notifications = opResult.notifications;
+        taskCreatedByLLM = translation.dbOperations.some((op: any) => op.action === 'createTask');
       }
 
-      const replyText = translation.directResponse || "I understood your message but had trouble generating a response. Please try again.";
+      // Safety net: if LLM claimed to create a task but didn't include dbOperations,
+      // warn the user so they know to retry
+      let replyText = translation.directResponse || "I understood your message but had trouble generating a response. Please try again.";
+      const isTaskLikeMessage = /task|assign|give.*to|send.*to|ask.*to/i.test(textBody);
+      if (isTaskLikeMessage && !taskCreatedByLLM) {
+        console.warn('[WhatsAppService] LLM claimed to create a task but dbOperations was empty. Warning user.');
+        replyText += "\n\n⚠️ I couldn't actually create the task. Please retry with a clearer message like: \"Assign [task description] to [person name]\"";
+      }
+
       const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
 
       // Dispatch and log generated notifications

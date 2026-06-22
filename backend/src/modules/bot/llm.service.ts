@@ -745,8 +745,10 @@ dbOperations parameter details:
 7. "createPersonalReminder": { "title": string, "description"?: string, "remindAt": "YYYY-MM-DDTHH:MM" }
 
 CRITICAL RULES:
-• For mutations (create/update/delete), set BOTH "directResponse" AND "dbOperations".
-  Example directResponse after creating task: "Done! I've assigned the task 'Bring Water Bottle' to Hardik Kateshiya with MEDIUM priority, due ${new Date(Date.now() + 86400000).toISOString().split('T')[0]}. He'll be notified on WhatsApp."
+• For mutations (create/update/delete), set BOTH "directResponse" AND "dbOperations". NEVER skip dbOperations.
+  If you do not include dbOperations, the task will NOT be created and the user will be lied to.
+• If the user says "send a task to X", "give a task to X", "assign X to do Y", "ask X to do Y", or any similar phrase — this IS a task creation. You MUST ALWAYS include dbOperations with action "createTask".
+• If you say "I've created the task" or "Task assigned" in directResponse but do NOT include dbOperations, the system will FAIL and the user will be angry. NEVER do this.
 • For questions/queries (listing vessels, checking tasks, asking about staff), set "dbOperations" to null and answer fully in "directResponse".
 • NEVER invent custom dbOperations (no "showVessels", "listVessels", "filterVessels", "query"). If the user asks a question, answer it directly.
 • NEVER fabricate data. If info is not in the database context, say "I don't have that information in the system."
