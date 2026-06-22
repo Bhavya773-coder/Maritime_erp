@@ -163,7 +163,8 @@ export class WhatsAppService {
   }
 
   /**
-   * Send WhatsApp text message (or template) and log as outgoing BotMessage
+   * Send WhatsApp text message (or template) and log as outgoing BotMessage.
+   * Returns the created BotMessage record.
    */
   public static async sendWhatsAppAndLog(
     toUserId: string | null,
@@ -173,46 +174,70 @@ export class WhatsAppService {
     const cleanPhone = this.normalizePhone(toPhone);
     const isSimulated = !env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID;
 
-    // Check if the outgoing message is a task assignment or delegation, and if we should use templates
     let type = 'TEXT';
+    let sendResult: any = null;
+    let actualStatus: string = isSimulated ? 'SIMULATED' : 'SENT';
+
+    // Check if the outgoing message is a task assignment or delegation, and if we should use templates
     if (env.WHATSAPP_TEMPLATE_NAME) {
       // 1. Check if it's a direct task assignment
-      // e.g. "New task from Bhavya: Check progress of KB 26 repairing. Reply UPDATE, DONE, or DELEGATE."
       const taskAssignMatch = messageText.match(/^New task from (.+?): (.+?)\. Reply UPDATE, DONE, or DELEGATE\.$/);
       if (taskAssignMatch) {
         const senderName = taskAssignMatch[1];
         const taskTitle = taskAssignMatch[2];
         type = 'TEMPLATE';
-        await this.sendWhatsAppTemplate(
+        sendResult = await this.sendWhatsAppTemplate(
           cleanPhone,
           env.WHATSAPP_TEMPLATE_NAME,
           env.WHATSAPP_TEMPLATE_LANG || 'en',
           [senderName, taskTitle]
         );
+
+        // If template failed, fall back to plain text
+        if (sendResult?.status === 'FAILED_SEND_FALLBACK_SIMULATED') {
+          console.warn(`[WhatsAppService] Template failed for ${cleanPhone}. Falling back to plain text.`);
+          sendResult = await this.sendWhatsAppText(cleanPhone, messageText);
+          actualStatus = sendResult?.status === 'SIMULATED' ? 'SIMULATED' : 'SENT_FALLBACK_TEXT';
+        }
       } else {
         // 2. Check if it's a task delegation
-        // e.g. "New task delegated to you by Hardik Kateshiya: Check progress of KB 26. Note: urgent repair needed"
         const taskDelegateMatch = messageText.match(/^New task delegated to you by (.+?): (.+?)\. Note: (.+)$/);
         if (taskDelegateMatch) {
           const senderName = `${taskDelegateMatch[1]} (Delegated)`;
           const taskTitle = `${taskDelegateMatch[2]} (Note: ${taskDelegateMatch[3]})`;
           type = 'TEMPLATE';
-          await this.sendWhatsAppTemplate(
+          sendResult = await this.sendWhatsAppTemplate(
             cleanPhone,
             env.WHATSAPP_TEMPLATE_NAME,
             env.WHATSAPP_TEMPLATE_LANG || 'en',
             [senderName, taskTitle]
           );
+
+          // If template failed, fall back to plain text
+          if (sendResult?.status === 'FAILED_SEND_FALLBACK_SIMULATED') {
+            console.warn(`[WhatsAppService] Template failed for ${cleanPhone}. Falling back to plain text.`);
+            sendResult = await this.sendWhatsAppText(cleanPhone, messageText);
+            actualStatus = sendResult?.status === 'SIMULATED' ? 'SIMULATED' : 'SENT_FALLBACK_TEXT';
+          }
         } else {
-          await this.sendWhatsAppText(cleanPhone, messageText);
+          sendResult = await this.sendWhatsAppText(cleanPhone, messageText);
         }
       }
     } else {
-      await this.sendWhatsAppText(cleanPhone, messageText);
+      sendResult = await this.sendWhatsAppText(cleanPhone, messageText);
     }
-    
-    const status = isSimulated ? 'SIMULATED' : 'SENT';
-    
+
+    // Log the actual status based on whether the API call succeeded
+    if (sendResult?.status === 'FAILED_SEND_FALLBACK_SIMULATED') {
+      actualStatus = 'FAILED';
+      console.error(`[WhatsAppService] Message FAILED to send to ${cleanPhone}. Message: "${messageText.substring(0, 60)}..."`);
+    } else if (sendResult?.status === 'SIMULATED') {
+      actualStatus = 'SIMULATED';
+      console.log(`[WhatsAppService] SIMULATED message to ${cleanPhone}: "${messageText.substring(0, 60)}..."`);
+    } else {
+      console.log(`[WhatsAppService] Message SENT to ${cleanPhone}: "${messageText.substring(0, 60)}..."`);
+    }
+
     return await prisma.botMessage.create({
       data: {
         direction: 'OUTGOING',
@@ -221,7 +246,7 @@ export class WhatsAppService {
         toPhone: cleanPhone,
         rawText: messageText,
         messageType: type,
-        status,
+        status: actualStatus,
       },
     });
   }
@@ -793,35 +818,50 @@ export class WhatsAppService {
       // For new users outside 24h window: sendWhatsAppAndLog auto-detects template and sends template message
       // For users inside 24h window: also send interactive buttons as follow-up for convenience
       const outgoingNotifications: any[] = [];
+      console.log(`[WhatsAppService] Processing ${notifications.length} notification(s) from LLM operations...`);
       for (const n of notifications) {
-        if (n.toPhone) {
-          // Step 1: Always send the message (template or text) — bypasses 24h window for templates
-          const outgoingNotif = await this.sendWhatsAppAndLog(
+        if (!n.toPhone) {
+          console.warn(`[WhatsAppService] Notification skipped for user ${n.toUserId}: no phone number.`);
+          continue;
+        }
+        console.log(`[WhatsAppService] Dispatching notification to phone ${n.toPhone}: "${n.rawText.substring(0, 80)}..."`);
+
+        // Step 1: Always send the message (template or text) — bypasses 24h window for templates
+        let outgoingNotif;
+        try {
+          outgoingNotif = await this.sendWhatsAppAndLog(
             n.toUserId || null,
             n.toPhone,
             n.rawText
           );
           outgoingNotifications.push(outgoingNotif);
+        } catch (sendErr: any) {
+          console.error(`[WhatsAppService] FAILED to send notification to ${n.toPhone}: ${sendErr.message}`);
+          continue;
+        }
 
-          // Step 2: If user is within 24h window, also send interactive buttons for convenience
-          if (n.messageType === 'INTERACTIVE_BUTTON' && n.taskId && n.toUserId) {
-            const inWindow = await this.isWithinConversationWindow(n.toUserId);
-            if (inWindow) {
-              try {
-                const buttonNotif = await this.sendWhatsAppTaskButtonsAndLog(
-                  n.toUserId,
-                  n.toPhone,
-                  n.rawText,
-                  n.taskId
-                );
-                outgoingNotifications.push(buttonNotif);
-              } catch (btnErr) {
-                console.warn('[WhatsAppService] Buttons follow-up failed (non-critical):', btnErr);
-              }
+        // Step 2: If user is within 24h window, also send interactive buttons for convenience
+        if (n.messageType === 'INTERACTIVE_BUTTON' && n.taskId && n.toUserId) {
+          const inWindow = await this.isWithinConversationWindow(n.toUserId);
+          if (inWindow) {
+            try {
+              const buttonNotif = await this.sendWhatsAppTaskButtonsAndLog(
+                n.toUserId,
+                n.toPhone,
+                n.rawText,
+                n.taskId
+              );
+              outgoingNotifications.push(buttonNotif);
+              console.log(`[WhatsAppService] Also sent interactive buttons to user ${n.toUserId}`);
+            } catch (btnErr: any) {
+              console.warn('[WhatsAppService] Buttons follow-up failed (non-critical):', btnErr.message);
             }
+          } else {
+            console.log(`[WhatsAppService] User ${n.toUserId} outside 24h window. Skipped interactive buttons.`);
           }
         }
       }
+      console.log(`[WhatsAppService] Notification dispatch complete. Total outgoing messages: ${outgoingNotifications.length}`);
 
       return {
         status: 'success',
