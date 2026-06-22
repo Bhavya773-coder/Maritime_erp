@@ -3,6 +3,7 @@ import { User, Role, BotChannel } from '@prisma/client';
 import { ReplyCommand } from './bot.reply-parser';
 import { WhatsAppService } from './whatsapp.service';
 import { BotService } from './bot.service';
+import { BotNotificationService } from './bot.notification-service';
 
 export class BotReplyService {
   public static async executeReplyCommand(
@@ -282,14 +283,22 @@ export class BotReplyService {
       const confirmationText = `Task delegated to ${assignee.name}: ${task.title}`;
       const senderMsg = await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, confirmationText);
 
-      // Notify new assignee
+      // Notify new assignee using notification service (handles 24h window + templates)
       let assigneeMsg: any = null;
       const assigneeContact = await prisma.userContact.findFirst({
         where: { userId: assignee.id, channel: BotChannel.WHATSAPP },
       });
-      if (assigneeContact) {
-        const assigneeText = `New task delegated to you by ${sender.name}: ${task.title}. Note: ${note}`;
-        assigneeMsg = await WhatsAppService.sendWhatsAppAndLog(assignee.id, assigneeContact.phoneNumber, assigneeText);
+      if (assigneeContact && assigneeContact.phoneNumber) {
+        assigneeMsg = await BotNotificationService.sendTaskDelegation(
+          assignee.id,
+          assigneeContact.phoneNumber,
+          sender.name,
+          task.title,
+          note,
+          task.id
+        );
+      } else {
+        console.warn(`[BotReplyService] No WhatsApp contact for assignee ${assignee.name}. Delegation notification skipped.`);
       }
 
       // Notify task creator
@@ -297,7 +306,7 @@ export class BotReplyService {
       const creatorContact = await prisma.userContact.findFirst({
         where: { userId: updatedTask.createdById, channel: BotChannel.WHATSAPP },
       });
-      if (creatorContact && updatedTask.createdById !== sender.id) {
+      if (creatorContact && creatorContact.phoneNumber && updatedTask.createdById !== sender.id) {
         const creatorText = `${sender.name} delegated task "${task.title}" to ${assignee.name}. Note: ${note}`;
         creatorMsg = await WhatsAppService.sendWhatsAppAndLog(updatedTask.createdById, creatorContact.phoneNumber, creatorText);
       }

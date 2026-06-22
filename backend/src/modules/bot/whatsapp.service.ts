@@ -7,6 +7,23 @@ import { LlmService } from './llm.service';
 
 export class WhatsAppService {
   /**
+   * Check if user is within the 24-hour WhatsApp conversation window.
+   */
+  public static async isWithinConversationWindow(userId: string): Promise<boolean> {
+    const lastIncoming = await prisma.botMessage.findFirst({
+      where: {
+        direction: 'INCOMING',
+        channel: BotChannel.WHATSAPP,
+        fromUserId: userId,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!lastIncoming) return false;
+    const windowMs = 24 * 60 * 60 * 1000;
+    return (Date.now() - new Date(lastIncoming.createdAt).getTime()) < windowMs;
+  }
+
+  /**
    * Normalize phone number to contain only digits
    */
   public static normalizePhone(phone: string): string {
@@ -773,25 +790,36 @@ export class WhatsAppService {
       const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
 
       // Dispatch and log generated notifications
+      // For new users outside 24h window: sendWhatsAppAndLog auto-detects template and sends template message
+      // For users inside 24h window: also send interactive buttons as follow-up for convenience
       const outgoingNotifications: any[] = [];
       for (const n of notifications) {
         if (n.toPhone) {
-          let outgoingNotif;
-          if (n.messageType === 'INTERACTIVE_BUTTON' && n.taskId) {
-            outgoingNotif = await this.sendWhatsAppTaskButtonsAndLog(
-              n.toUserId || null,
-              n.toPhone,
-              n.rawText,
-              n.taskId
-            );
-          } else {
-            outgoingNotif = await this.sendWhatsAppAndLog(
-              n.toUserId || null,
-              n.toPhone,
-              n.rawText
-            );
-          }
+          // Step 1: Always send the message (template or text) — bypasses 24h window for templates
+          const outgoingNotif = await this.sendWhatsAppAndLog(
+            n.toUserId || null,
+            n.toPhone,
+            n.rawText
+          );
           outgoingNotifications.push(outgoingNotif);
+
+          // Step 2: If user is within 24h window, also send interactive buttons for convenience
+          if (n.messageType === 'INTERACTIVE_BUTTON' && n.taskId && n.toUserId) {
+            const inWindow = await this.isWithinConversationWindow(n.toUserId);
+            if (inWindow) {
+              try {
+                const buttonNotif = await this.sendWhatsAppTaskButtonsAndLog(
+                  n.toUserId,
+                  n.toPhone,
+                  n.rawText,
+                  n.taskId
+                );
+                outgoingNotifications.push(buttonNotif);
+              } catch (btnErr) {
+                console.warn('[WhatsAppService] Buttons follow-up failed (non-critical):', btnErr);
+              }
+            }
+          }
         }
       }
 

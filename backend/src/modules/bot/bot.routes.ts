@@ -8,8 +8,12 @@ import {
   getReminders,
   pauseReminder,
   processDueReminders,
+  createPersonalReminder,
+  getPersonalReminders,
+  cancelPersonalReminder,
+  processDuePersonalReminders,
 } from './bot.controller';
-import { testCommandSchema } from './bot.schema';
+import { testCommandSchema, personalReminderSchema } from './bot.schema';
 import whatsappRoutes from './whatsapp.routes';
 import { createContact, getContacts } from './whatsapp.controller';
 
@@ -40,6 +44,12 @@ router.get('/messages', requireRole([Role.OWNER]), getMessages);
 router.get('/reminders', requireRole([Role.OWNER, Role.MANAGER]), getReminders);
 router.patch('/reminders/:id/pause', validateReminderId, requireRole([Role.OWNER, Role.MANAGER]), pauseReminder);
 router.post('/reminders/process-due', requireRole([Role.OWNER]), processDueReminders);
+
+// Personal Reminders
+router.post('/reminders/personal', validate(personalReminderSchema), createPersonalReminder);
+router.get('/reminders/personal', getPersonalReminders);
+router.delete('/reminders/personal/:id', cancelPersonalReminder);
+router.post('/reminders/personal/process-due', requireRole([Role.OWNER]), processDuePersonalReminders);
 
 // Contacts management (OWNER only)
 router.post('/contacts', requireRole([Role.OWNER]), createContact);

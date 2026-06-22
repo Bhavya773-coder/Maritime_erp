@@ -1,6 +1,7 @@
 import prisma from '../../config/db';
 import { BotChannel } from '@prisma/client';
 import { WhatsAppService } from './whatsapp.service';
+import { BotNotificationService } from './bot.notification-service';
 
 export class BotReminderService {
   public static async processDueReminders(): Promise<{
@@ -41,7 +42,7 @@ export class BotReminderService {
 
     for (const reminder of dueReminders) {
       checked++;
-      
+
       // Check if task is completed or deleted
       if (reminder.task.status === 'COMPLETED' || reminder.task.isDeleted || reminder.task.deletedAt) {
         await prisma.botReminder.update({
@@ -56,9 +57,8 @@ export class BotReminderService {
       const isOverdue = task.dueDate && new Date(task.dueDate) < now;
       const dueDateStr = task.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : 'No due date';
       const lastComment = task.comments[0]?.content || null;
-      const overdueLabel = isOverdue ? '⚠️ OVERDUE' : '⏰ Pending';
 
-      // --- Send reminder to ASSIGNEE ---
+      // --- Send reminder to ASSIGNEE using notification service (handles 24h window) ---
       const assigneeContact = await prisma.userContact.findFirst({
         where: {
           userId: reminder.assignedToId,
@@ -66,15 +66,24 @@ export class BotReminderService {
         },
       });
 
-      if (assigneeContact) {
-        let assigneeText = `${overdueLabel}: "${task.title}" (Due: ${dueDateStr}).`;
-        await WhatsAppService.sendWhatsAppTaskButtonsAndLog(
-          reminder.assignedToId,
-          assigneeContact.phoneNumber,
-          assigneeText,
-          task.id
-        );
-        sent++;
+      if (assigneeContact && assigneeContact.phoneNumber) {
+        try {
+          await BotNotificationService.sendTaskReminder(
+            reminder.assignedToId,
+            assigneeContact.phoneNumber,
+            task.title,
+            dueDateStr,
+            isOverdue,
+            task.id
+          );
+          sent++;
+        } catch (err) {
+          console.error(`[BotReminderService] Failed to send reminder to assignee ${reminder.assignedTo.name}:`, err);
+          skipped++;
+        }
+      } else {
+        console.warn(`[BotReminderService] No WhatsApp contact for assignee ${reminder.assignedTo.name}. Reminder skipped.`);
+        skipped++;
       }
 
       // --- Send reminder to CREATOR (only if creator != assignee) ---
@@ -86,18 +95,24 @@ export class BotReminderService {
           },
         });
 
-        if (creatorContact) {
-          const assigneeName = task.assignee?.name || 'Unknown';
-          let creatorText = `${overdueLabel}: Task "${task.title}" assigned to ${assigneeName} (Due: ${dueDateStr}) is still not done.`;
-          if (lastComment) {
-            creatorText += `\nLast update: "${lastComment}"`;
+        if (creatorContact && creatorContact.phoneNumber) {
+          try {
+            const assigneeName = task.assignee?.name || 'Unknown';
+            let creatorText = isOverdue
+              ? `⚠️ OVERDUE: Task "${task.title}" assigned to ${assigneeName} (Due: ${dueDateStr}) is still not done.`
+              : `⏰ Pending: Task "${task.title}" assigned to ${assigneeName} (Due: ${dueDateStr}) is still not done.`;
+            if (lastComment) {
+              creatorText += `\nLast update: "${lastComment}"`;
+            }
+            await WhatsAppService.sendWhatsAppAndLog(
+              task.createdById,
+              creatorContact.phoneNumber,
+              creatorText
+            );
+            sent++;
+          } catch (err) {
+            console.error(`[BotReminderService] Failed to send reminder to creator ${task.creator.name}:`, err);
           }
-          await WhatsAppService.sendWhatsAppAndLog(
-            task.createdById,
-            creatorContact.phoneNumber,
-            creatorText
-          );
-          sent++;
         }
       }
 
@@ -110,10 +125,6 @@ export class BotReminderService {
           nextReminderAt: nextRem,
         },
       });
-
-      if (!assigneeContact) {
-        skipped++;
-      }
     }
 
     return {

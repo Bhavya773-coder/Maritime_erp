@@ -130,7 +130,8 @@ export class LlmService {
             });
 
             if (assigneeContact) {
-              const rawText = `New task from ${senderUserName}: ${task.title}. Priority: ${task.priority}. Due: ${task.dueDate.toISOString().split('T')[0]}.`;
+              // Use exact template message format to bypass 24h window
+              const rawText = `New task from ${senderUserName}: ${task.title}. Reply UPDATE, DONE, or DELEGATE.`;
               notifications.push({
                 toUserId: assignee.id,
                 toPhone: assigneeContact.phoneNumber,
@@ -339,6 +340,34 @@ export class LlmService {
             });
 
             auditLogs.push(`Logged activity for vessel "${vessel.name}": ${summary}`);
+            break;
+          }
+
+          case 'createPersonalReminder': {
+            const { title, description, remindAt } = op.params || {};
+
+            if (!title || !remindAt) {
+              auditLogs.push('Failed to create personal reminder: Missing title or remindAt');
+              break;
+            }
+
+            const d = new Date(remindAt);
+            if (isNaN(d.getTime())) {
+              auditLogs.push(`Failed to create personal reminder: Invalid date "${remindAt}"`);
+              break;
+            }
+
+            const reminder = await prisma.personalReminder.create({
+              data: {
+                userId: senderUserId,
+                title,
+                description: description || null,
+                remindAt: d,
+                status: 'PENDING',
+              },
+            });
+
+            auditLogs.push(`Created personal reminder "${title}" for ${d.toISOString()}`);
             break;
           }
 
@@ -673,6 +702,24 @@ DO NOT create tasks from:
 • Questions: "what time is lunch?", "how are you?"
 
 ════════════════════════════════════════════════
+PERSONAL REMINDER RULES
+════════════════════════════════════════════════
+
+When the user asks to set a reminder, remember something, or be notified at a specific time:
+• Extract the TITLE (what to remember)
+• Extract the REMIND TIME (when to notify — parse times like "5pm", "today at 5", "tomorrow morning", "in 30 minutes")
+• If the time is vague, default to today at the mentioned time. If no time is mentioned, ask for clarification.
+• IMPORTANT: Use 24-hour format for remindAt: "YYYY-MM-DDTHH:MM" (e.g., "2026-06-20T17:00")
+• Examples:
+  - "remind me at 5pm for my meeting" → title="My meeting", remindAt="${today}T17:00"
+  - "set reminder tomorrow at 9am to check emails" → title="Check emails", remindAt="${new Date(Date.now() + 86400000).toISOString().split('T')[0]}T09:00"
+  - "remind me in 2 hours to call client" → title="Call client", remindAt="${new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString().split('T')[0]}T${new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString().split('T')[1].slice(0,5)}"
+
+DO NOT set reminders for:
+• Other people (only the current user can set personal reminders for themselves)
+• Tasks that should be assigned to someone else (use createTask instead)
+
+════════════════════════════════════════════════
 RESPONSE FORMAT — JSON ONLY
 ════════════════════════════════════════════════
 
@@ -682,7 +729,7 @@ Reply with ONLY this JSON (no extra text):
   "directResponse": "YOUR COMPLETE NATURAL LANGUAGE ANSWER HERE — NEVER null",
   "dbOperations": [
     {
-      "action": "deleteTasks" | "createTask" | "updateTask" | "updateVessel" | "addStaff" | "logVesselActivity",
+      "action": "deleteTasks" | "createTask" | "updateTask" | "updateVessel" | "addStaff" | "logVesselActivity" | "createPersonalReminder",
       "params": object
     }
   ] | null
@@ -695,6 +742,7 @@ dbOperations parameter details:
 4. "updateVessel": { "name": string, "location": string }
 5. "addStaff": { "name": string, "phone": string, "position": string }
 6. "logVesselActivity": { "vesselName": string, "activityType": "TASK_ASSIGNED"|"TASK_COMPLETED"|"LOCATION_UPDATE"|"STATUS_UPDATE"|"CONVERSATION_MENTION", "summary": string }
+7. "createPersonalReminder": { "title": string, "description"?: string, "remindAt": "YYYY-MM-DDTHH:MM" }
 
 CRITICAL RULES:
 • For mutations (create/update/delete), set BOTH "directResponse" AND "dbOperations".
@@ -822,6 +870,8 @@ Bad directResponse: null or "I have processed your request."`;
               summaries.push(`I've deleted the requested tasks.`);
             } else if (op.action === 'updateVessel') {
               summaries.push(`I've updated the location of ${op.params.name} to ${op.params.location}.`);
+            } else if (op.action === 'createPersonalReminder') {
+              summaries.push(`I've set a reminder for "${op.params.title}" at ${op.params.remindAt}. I'll notify you when the time comes.`);
             } else {
               summaries.push(`I've processed your ${op.action} request.`);
             }

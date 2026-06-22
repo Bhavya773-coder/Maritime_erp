@@ -85,6 +85,7 @@ model User {
   botMessagesReceived   BotMessage[]            @relation("BotMessageReceiver")
   botReminders          BotReminder[]           @relation("BotReminderAssignee")
   contacts              UserContact[]
+  personalReminders     PersonalReminder[]
   vesselActivityLogs    VesselActivityLog[]     @relation("ActivityReporter")
 
   @@map("users")
@@ -306,6 +307,7 @@ enum BotCommandStatus {
 
 enum BotReminderType {
   TASK_PENDING
+  PERSONAL
 }
 
 enum BotReminderStatus {
@@ -415,4 +417,20 @@ model BotSession {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("bot_sessions")
+}
+
+model PersonalReminder {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @map("user_id") @db.ObjectId
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  remindAt    DateTime @map("remind_at")
+  status      String   @default("PENDING") // PENDING, COMPLETED, CANCELLED
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([status])
+  @@index([remindAt])
+  @@map("personal_reminders")
 }

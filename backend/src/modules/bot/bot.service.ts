@@ -3,6 +3,7 @@ import { AppError } from '../../middleware/error';
 import { Role, BotChannel, BotMessageDirection, BotCommandStatus, BotReminderStatus } from '@prisma/client';
 import { BotParser } from './bot.parser';
 import { LlmService } from './llm.service';
+import { BotNotificationService } from './bot.notification-service';
 
 export class BotService {
   /**
@@ -238,22 +239,44 @@ export class BotService {
       },
     });
 
-    // Create outgoing bot messages
+    // Create outgoing bot messages and DISPATCH them via WhatsApp
     let assigneeText = `New task assigned to you: "${task.title}". Priority: ${task.priority}. Due: ${task.dueDate.toISOString()}.`;
     let senderText = `Task created: "${task.title}" has been assigned to ${assignee.name}.`;
 
     let toPhoneAssignee: string | null = null;
     let toPhoneSender: string | null = fromPhone;
+    const dispatchedMessages: any[] = [];
 
     if (channel === BotChannel.WHATSAPP) {
       assigneeText = `New task from ${sender.name}: ${task.title}. Reply UPDATE, DONE, or DELEGATE.`;
       senderText = `Task created and sent to ${assignee.name}. Task: ${task.title}`;
-      
+
       const assigneeContact = await prisma.userContact.findFirst({
         where: { userId: assignee.id, channel: BotChannel.WHATSAPP }
       });
-      if (assigneeContact) {
+      if (assigneeContact && assigneeContact.phoneNumber) {
         toPhoneAssignee = assigneeContact.phoneNumber;
+        // DISPATCH to assignee — uses template if available (bypasses 24h window)
+        const assigneeMsg = await BotNotificationService.sendTaskAssignment(
+          assignee.id,
+          toPhoneAssignee,
+          sender.name,
+          task.title,
+          task.id
+        );
+        dispatchedMessages.push(assigneeMsg);
+      } else {
+        console.warn(`[BotService] No WhatsApp contact found for assignee ${assignee.name}. Task notification skipped.`);
+      }
+
+      // DISPATCH sender acknowledgement
+      if (toPhoneSender) {
+        const senderMsg = await BotNotificationService.sendTextNotification(
+          sender.id,
+          toPhoneSender,
+          senderText
+        );
+        dispatchedMessages.push(senderMsg);
       }
     }
 
@@ -279,6 +302,7 @@ export class BotService {
         command,
         task,
         notifications,
+        dispatchedMessages,
       },
     };
   }

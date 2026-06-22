@@ -1,6 +1,7 @@
 import prisma from '../../config/db';
 import { AppError } from '../../middleware/error';
 import { TaskType, Priority, TaskStatus, Role, User } from '@prisma/client';
+import { BotNotificationService } from '../bot/bot.notification-service';
 
 export class TasksService {
   /**
@@ -231,15 +232,21 @@ export class TasksService {
         },
       });
 
-      // Send WhatsApp notification immediately
+      // Send WhatsApp notification to assignee using notification service (handles 24h window + templates)
       try {
         const assigneeContact = await prisma.userContact.findFirst({
           where: { userId: task.assignedToId, channel: 'WHATSAPP' },
         });
-        if (assigneeContact) {
-          const { WhatsAppService } = await import('../bot/whatsapp.service');
-          const rawText = `New task from ${creator.name}: ${task.title}. Priority: ${task.priority}. Due: ${task.dueDate.toISOString().split('T')[0]}.`;
-          await WhatsAppService.sendWhatsAppAndLog(task.assignedToId, assigneeContact.phoneNumber, rawText);
+        if (assigneeContact && assigneeContact.phoneNumber) {
+          await BotNotificationService.sendTaskAssignment(
+            task.assignedToId,
+            assigneeContact.phoneNumber,
+            creator.name,
+            task.title,
+            task.id
+          );
+        } else {
+          console.warn(`[TasksService] No WhatsApp contact for assignee ${task.assignedToId}. Task notification skipped.`);
         }
       } catch (err) {
         console.error('[TasksService] Error sending task creation WhatsApp:', err);
@@ -457,26 +464,36 @@ export class TasksService {
       data: { assignedToId: targetUserId },
     });
 
-    // Send WhatsApp notification to new assignee and acknowledgement to creator
+    // Send WhatsApp notification to new assignee and acknowledgement to creator using notification service
     try {
-      const { WhatsAppService } = await import('../bot/whatsapp.service');
-
-      // 1. Notify new assignee
+      // 1. Notify new assignee — uses template if available (bypasses 24h window)
       const assigneeContact = await prisma.userContact.findFirst({
         where: { userId: targetUserId, channel: 'WHATSAPP' }
       });
-      if (assigneeContact) {
-        const assigneeText = `New task delegated to you by ${user.name}: ${task.title}. Note: ${note || 'Delegated'}`;
-        await WhatsAppService.sendWhatsAppAndLog(targetUserId, assigneeContact.phoneNumber, assigneeText);
+      if (assigneeContact && assigneeContact.phoneNumber) {
+        await BotNotificationService.sendTaskDelegation(
+          targetUserId,
+          assigneeContact.phoneNumber,
+          user.name,
+          task.title,
+          note || 'Delegated',
+          task.id
+        );
+      } else {
+        console.warn(`[TasksService] No WhatsApp contact for new assignee ${targetUser.name}. Delegation notification skipped.`);
       }
 
-      // 2. Notify creator
+      // 2. Notify creator (acknowledgement)
       const creatorContact = await prisma.userContact.findFirst({
         where: { userId: task.createdById, channel: 'WHATSAPP' }
       });
-      if (creatorContact && task.createdById !== user.id) {
+      if (creatorContact && creatorContact.phoneNumber && task.createdById !== user.id) {
         const creatorText = `${user.name} delegated task "${task.title}" to ${targetUser.name}. Note: ${note || 'Delegated'}`;
-        await WhatsAppService.sendWhatsAppAndLog(task.createdById, creatorContact.phoneNumber, creatorText);
+        await BotNotificationService.sendTextNotification(
+          task.createdById,
+          creatorContact.phoneNumber,
+          creatorText
+        );
       }
     } catch (err) {
       console.error('[TasksService] Error sending delegation WhatsApp:', err);
