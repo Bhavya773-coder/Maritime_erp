@@ -1,5 +1,7 @@
 import { PrismaClient, Role, VesselType, VesselStatus } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import fs from 'fs';
+import path from 'path';
 
 const prisma = new PrismaClient();
 
@@ -341,52 +343,244 @@ async function main() {
     });
   }
 
-  // Seed GA Plan document records
-  console.log('Seeding vessel documents...');
+  // ─────────────────────────────────────────────────────────────────────────────
+  // DOCUMENT SEEDING — All 110 PDFs from the Bhavya zip
+  // Place the unzipped folder at: backend/documents/source/Bhavya/
+  // After seeding, files live in MongoDB — the source folder can be deleted.
+  // ─────────────────────────────────────────────────────────────────────────────
 
-  const gaDocMap = [
-    { key: 'ARCADIA ADINATH',   file: 'GA_ARCADIA ADINATH.pdf' },
-    { key: 'ARCADIA MAHAVIR',   file: 'GA_ARCADIA MAHAVIR.pdf' },
-    { key: 'ARCADIA MINICA',    file: 'GA_ARCADIA MINICA.pdf' },
-    { key: 'ARCADIA PARSHVA',   file: 'GA_ARCADIA PARSHVA.pdf' },
-    { key: 'ARCADIA SUMERU',    file: 'GA_ARCADIA SUMERU.pdf' },
-    { key: 'ARCADIA SUPARSHVA', file: 'GA_ARCADIA SUPARSHVA.pdf' },
-    { key: 'ARCADIA VARUN',     file: 'GA_ARCADIA VARUN.pdf' },
-    { key: 'ARCADIA ZARAH',     file: 'GA_ARCADIA ZARAH.pdf' },
-    { key: 'KB 23',             file: 'GA_KB 23.pdf' },
-    { key: 'KB 24',             file: 'GA_KB 24.pdf' },
-    { key: 'KB 25',             file: 'GA_KB 25.pdf' },
-    { key: 'KB 26',             file: 'GA_KB 26.pdf' },
-    { key: 'KB 28',             file: 'GA_KB 28.PDF' },
-    { key: 'ARCADIA 1',         file: 'GA_ARCADIA 1.pdf' },
-    { key: 'ARCADIA KRISHNA',   file: 'GA_ARCADIA KRISHNA.pdf' },
-    { key: 'ARCADIA VIJAY',     file: 'GA_ARCADIA VIJAY.pdf' },
-    { key: 'ARCADIA VISHAKHA',  file: 'GA_ARCADIA VISHAKHA.pdf' },
+  console.log('\nSeeding vessel documents into MongoDB...');
+
+  // Pre-clear all documents and chunks to avoid old schema conflicts
+  console.log('Clearing old vessel documents and chunks...');
+  await prisma.vesselDocumentChunk.deleteMany({});
+  await prisma.vesselDocument.deleteMany({});
+
+  const DOC_SOURCE_DIR = path.join(__dirname, '..', 'documents', 'source', 'Bhavya');
+
+  interface DocEntry {
+    key: string;        // fuzzy vessel name fragment used for DB lookup
+    docType: string;
+    label: string;
+    folder: string;     // relative path inside the Bhavya folder
+    file: string;       // exact filename
+  }
+
+  const allDocuments: DocEntry[] = [
+    // ── GA Plans ──────────────────────────────────────────────────────────────
+    { key: 'ARCADIA 1',         docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ARCADIA 1.pdf' },
+    { key: 'ARCADIA ADINATH',   docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ARCADIA ADINATH.pdf' },
+    { key: 'ARCADIA KRISHNA',   docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ARCADIA KRISHNA.pdf' },
+    { key: 'ARCADIA MAHAVIR',   docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ARCADIA MAHAVIR.pdf' },
+    { key: 'ARCADIA MINICA',    docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ARCADIA MINICA.pdf' },
+    { key: 'ARCADIA PARSHVA',   docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ARCADIA PARSHVA.pdf' },
+    { key: 'ARCADIA SUMERU',    docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ARCADIA SUMERU.pdf' },
+    { key: 'ARCADIA SUPARSHVA', docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ARCADIA SUPARSHVA.pdf' },
+    { key: 'ARCADIA VARUN',     docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ARCADIA VARUN.pdf' },
+    { key: 'ARCADIA VIJAY',     docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ARCADIA VIJAY.pdf' },
+    { key: 'ARCADIA VISHAKHA',  docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ARCADIA VISHAKHA.pdf' },
+    { key: 'ARCADIA ZARAH',     docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ARCADIA ZARAH.pdf' },
+    { key: 'KB 23',             docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_KB 23.pdf' },
+    { key: 'KB 24',             docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_KB 24.pdf' },
+    { key: 'KB 25',             docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_KB 25.pdf' },
+    { key: 'KB 26',             docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_KB 26.pdf' },
+    { key: 'KB 28',             docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_KB 28.PDF' },
+    { key: 'KB 32',             docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_KB 32.pdf' },
+    { key: 'KB 33',             docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_KB 33.pdf' },
+    { key: 'KB 4',              docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_KB 4.pdf' },
+    { key: 'KB 40',             docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_KB 40.pdf' },
+    { key: 'MAHASAGAR',         docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_MAHASAGAR.pdf' },
+    { key: 'OCEANIC',           docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_OCEANIC.pdf' },
+    // ZARAH I–IV share the same GA Plan file
+    { key: 'ZARAH - I',         docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ZARAH-I TO 4 (SAME).pdf' },
+    { key: 'ZARAH - II',        docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ZARAH-I TO 4 (SAME).pdf' },
+    { key: 'ZARAH - III',       docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ZARAH-I TO 4 (SAME).pdf' },
+    { key: 'ZARAH - IV',        docType: 'GA_PLAN',               label: 'GA Plan',               folder: 'GA Plan',                                     file: 'GA_ZARAH-I TO 4 (SAME).pdf' },
+
+    // ── Stability Booklets ────────────────────────────────────────────────────
+    { key: 'ARCADIA 1',         docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_ARCADIA 1.pdf' },
+    { key: 'ARCADIA ADINATH',   docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_ARCADIA ADINATH.pdf' },
+    { key: 'ARCADIA KRISHNA',   docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_ARCADIA KRISHNA.pdf' },
+    { key: 'ARCADIA MAHAVIR',   docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_ARCADIA MAHAVIR.pdf' },
+    { key: 'ARCADIA MINICA',    docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_ARCADIA MINICA.pdf' },
+    { key: 'ARCADIA PARSHVA',   docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_ARCADIA PARSHVA.pdf' },
+    { key: 'ARCADIA SUMERU',    docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_ARCADIA SUMERU.pdf' },
+    { key: 'ARCADIA SUPARSHVA', docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_ARCADIA SUPARSHVA.pdf' },
+    { key: 'ARCADIA VARUN',     docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_ARCADIA VARUN.pdf' },
+    { key: 'ARCADIA ZARAH',     docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_ARCADIA ZARAH.pdf' },
+    { key: 'KB 23',             docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_KB 23.pdf' },
+    { key: 'KB 24',             docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_KB 24.pdf' },
+    { key: 'KB 25',             docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_KB 25.pdf' },
+    { key: 'KB 26',             docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_KB 26.pdf' },
+    { key: 'KB 28',             docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_KB 28.pdf' },
+    { key: 'KB 32',             docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_KB 32.pdf' },
+    { key: 'KB 33',             docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_KB 33.pdf' },
+    { key: 'KB 4',              docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_KB 4.pdf' },
+    { key: 'KB 40',             docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_KB 40.pdf' },
+    { key: 'MAHASAGAR',         docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_MAHASAGAR.pdf' },
+    // ZARAH I–IV share the same Stability Booklet file
+    { key: 'ZARAH - I',         docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_ZARAH-I TO 4 (SAME).pdf' },
+    { key: 'ZARAH - II',        docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_ZARAH-I TO 4 (SAME).pdf' },
+    { key: 'ZARAH - III',       docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_ZARAH-I TO 4 (SAME).pdf' },
+    { key: 'ZARAH - IV',        docType: 'STABILITY_BOOKLET',     label: 'Stability Booklet',     folder: 'Stability Booklet',                           file: 'STA_ZARAH-I TO 4 (SAME).pdf' },
+
+    // ── Registry Certificates ─────────────────────────────────────────────────
+    { key: 'ARCADIA 1',         docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IV Tugs',                file: 'REG_ARCADIA 1.pdf' },
+    { key: 'ARCADIA ADINATH',   docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IV Barges',              file: 'REG_ARCADIA ADINATH.pdf' },
+    { key: 'ARCADIA KRISHNA',   docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IV Tugs',                file: 'REG_ARCADIA KRISHNA.pdf' },
+    { key: 'ARCADIA MAHAVIR',   docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IRS Barges',             file: 'REG_ARCADIA MAHAVIR.pdf' },
+    { key: 'ARCADIA MINICA',    docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IRS Barges',             file: 'REG_ARCADIA MINICA.pdf' },
+    { key: 'ARCADIA PARSHVA',   docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IRS Barges',             file: 'REG_ARCADIA PARSHVA.pdf' },
+    { key: 'ARCADIA SUMERU',    docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IRS Barges',             file: 'REG_ARCADIA SUMERU.pdf' },
+    { key: 'ARCADIA SUPARSHVA', docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IRS Barges',             file: 'REG_ARCADIA SUPARSHVA.pdf' },
+    { key: 'ARCADIA VARUN',     docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IV Barges',              file: 'REG_ARCADIA VARUN.pdf' },
+    { key: 'ARCADIA VIJAY',     docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IV Tugs',                file: 'REG_ARCADIA VIJAY.pdf' },
+    { key: 'ARCADIA VISHAKHA',  docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IV Tugs',                file: 'REG_ARCADIA VISHAKHA.pdf' },
+    { key: 'ARCADIA ZARAH',     docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IRS Barges',             file: 'REG_ARCADIA ZARAH.pdf' },
+    { key: 'KB 23',             docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IV Barges',              file: 'REG_KB 23.pdf' },
+    { key: 'KB 24',             docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IRS Barges',             file: 'REG_KB 24.pdf' },
+    { key: 'KB 25',             docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IRS Barges',             file: 'REG_KB 25.pdf' },
+    { key: 'KB 26',             docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IRS Barges',             file: 'REG_KB 26.pdf' },
+    { key: 'KB 28',             docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IRS Barges',             file: 'REG_KB 28.pdf' },
+    { key: 'KB 32',             docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IRS Barges',             file: 'REG_KB 32.pdf' },
+    { key: 'KB 33',             docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IRS Barges',             file: 'REG_KB 33.pdf' },
+    { key: 'KB 40',             docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IRS Barges',             file: 'REG_KB 40.pdf' },
+    { key: 'KB 4',              docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IRS Tugs',               file: 'REG_KB 4.pdf' },
+    { key: 'MAHASAGAR',         docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IV Barges',              file: 'REG_MAHASAGAR.pdf' },
+    { key: 'OCEANIC',           docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IV Barges',              file: 'REG_OCEANIC.pdf' },
+    { key: 'ZARAH - I',         docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IV Barges',              file: 'REG_ZARAH-I.pdf' },
+    { key: 'ZARAH - II',        docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IV Barges',              file: 'REG_ZARAH-II.pdf' },
+    { key: 'ZARAH - III',       docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IV Barges',              file: 'REG_ZARAH-III.pdf' },
+    { key: 'ZARAH - IV',        docType: 'REGISTRY',              label: 'Registry Certificate',  folder: 'Registry Certificate/IV Barges',              file: 'REG_ZARAH-IV.pdf' },
+
+    // ── Insurance Certificates ────────────────────────────────────────────────
+    { key: 'ARCADIA ADINATH',   docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_ARCADIA ADINATH.pdf' },
+    { key: 'ARCADIA MAHAVIR',   docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_ARCADIA MAHAVIR.pdf' },
+    { key: 'ARCADIA MINICA',    docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_ARCADIA MINICA.pdf' },
+    { key: 'ARCADIA PARSHVA',   docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_ARCADIA PARSHVA.pdf' },
+    { key: 'ARCADIA SUMERU',    docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_ARCADIA SUMERU.pdf' },
+    { key: 'ARCADIA VARUN',     docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_ARCADIA VARUN.pdf' },
+    { key: 'ARCADIA VIJAY',     docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_ ARCADIA VIJAY.pdf' },
+    { key: 'ARCADIA VISHAKHA',  docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_ARCADIA VISHAKHA.pdf' },
+    { key: 'KB 23',             docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_KB 23.pdf' },
+    { key: 'KB 24',             docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_KB 24.pdf' },
+    { key: 'KB 25',             docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_KB 25.pdf' },
+    { key: 'KB 26',             docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_KB 26.pdf' },
+    { key: 'KB 32',             docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_KB 32.pdf' },
+    { key: 'KB 33',             docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_KB 33.pdf' },
+    { key: 'KB 4',              docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_KB 4.pdf' },
+    { key: 'KB 40',             docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_KB 40.pdf' },
+    { key: 'MAHASAGAR',         docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_MAHASAGAR.pdf' },
+    { key: 'OCEANIC',           docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_OCANIC.pdf' },  // typo in zip filename preserved
+    { key: 'ZARAH - I',         docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_ZARAH-I.pdf' },
+    { key: 'ZARAH - III',       docType: 'INSURANCE_CERTIFICATE', label: 'Insurance Certificate', folder: 'Insurance',                                   file: 'INS_ZARAH-III.pdf' },
+
+    // ── Survey Certificates ───────────────────────────────────────────────────
+    { key: 'ARCADIA ADINATH',   docType: 'SURVEY_CERTIFICATE',    label: 'Survey Certificate',    folder: 'Survey Certificate/IV BARGES',                file: 'SUR_ARCADIA ADINATH.pdf' },
+    { key: 'ARCADIA MAHAVIR',   docType: 'SURVEY_CERTIFICATE',    label: 'Survey Certificate',    folder: 'Survey Certificate/IRS BARGE',                file: 'CLA_ARCADIA MAHAVIR.pdf' },
+    { key: 'ARCADIA PARSHVA',   docType: 'SURVEY_CERTIFICATE',    label: 'Survey Certificate',    folder: 'Survey Certificate/IRS BARGE',                file: 'CLA_ARCADIA PARSHVA.pdf' },
+    { key: 'ARCADIA SUPARSHVA', docType: 'SURVEY_CERTIFICATE',    label: 'Survey Certificate',    folder: 'Survey Certificate/IRS BARGE',                file: 'CLA_ARCADIA SUPARSHVA.pdf' },
+    { key: 'ARCADIA VARUN',     docType: 'SURVEY_CERTIFICATE',    label: 'Survey Certificate',    folder: 'Survey Certificate/IV BARGES',                file: 'SUR_ ARCADIA VARUN.pdf' },
+    { key: 'ARCADIA VISHAKHA',  docType: 'SURVEY_CERTIFICATE',    label: 'Survey Certificate',    folder: 'Survey Certificate/IV TUGS',                  file: 'SUR_ARCADIA VISHAKHA.pdf' },
+    { key: 'KB 24',             docType: 'SURVEY_CERTIFICATE',    label: 'Survey Certificate',    folder: 'Survey Certificate/IRS BARGE',                file: 'CLA_KB 24.pdf' },
+    { key: 'KB 33',             docType: 'SURVEY_CERTIFICATE',    label: 'Survey Certificate',    folder: 'Survey Certificate/IRS BARGE',                file: 'CLA_KB 33.pdf' },
+    { key: 'KB 4',              docType: 'SURVEY_CERTIFICATE',    label: 'Survey Certificate',    folder: 'Survey Certificate/IRS BARGE',                file: 'CLA_KB 4.pdf' },
+    { key: 'ZARAH - I',         docType: 'SURVEY_CERTIFICATE',    label: 'Survey Certificate',    folder: 'Survey Certificate/IV BARGES',                file: 'SUR_ZARAH 1.pdf' },
+    { key: 'ZARAH - II',        docType: 'SURVEY_CERTIFICATE',    label: 'Survey Certificate',    folder: 'Survey Certificate/IV BARGES',                file: 'SUR_ZARAH 2.pdf' },
+    { key: 'ZARAH - III',       docType: 'SURVEY_CERTIFICATE',    label: 'Survey Certificate',    folder: 'Survey Certificate/IV BARGES',                file: 'SUR_ZARAH 3.pdf' },
+    { key: 'ZARAH - IV',        docType: 'SURVEY_CERTIFICATE',    label: 'Survey Certificate',    folder: 'Survey Certificate/IV BARGES',                file: 'SUR_ZARAH 4.pdf' },
+
+    // ── Load Line Certificates ────────────────────────────────────────────────
+    { key: 'ARCADIA SUPARSHVA', docType: 'LOAD_LINE_CERTIFICATE', label: 'Load Line Certificate', folder: 'Survey Certificate/IRS LOAD LINE CERTIFICATE', file: 'ARCADIA SUPARSHVA - LOAD LINE CERTIFICATE.pdf' },
+    { key: 'ARCADIA MAHAVIR',   docType: 'LOAD_LINE_CERTIFICATE', label: 'Load Line Certificate', folder: 'Survey Certificate/IRS LOAD LINE CERTIFICATE', file: 'LOA_ARCADIA MAHAVIR.pdf' },
+    { key: 'ARCADIA PARSHVA',   docType: 'LOAD_LINE_CERTIFICATE', label: 'Load Line Certificate', folder: 'Survey Certificate/IRS LOAD LINE CERTIFICATE', file: 'LOA_ARCADIA PARSHVA.pdf' },
+    { key: 'KB 24',             docType: 'LOAD_LINE_CERTIFICATE', label: 'Load Line Certificate', folder: 'Survey Certificate/IRS LOAD LINE CERTIFICATE', file: 'LOA_KB 24.pdf' },
+    { key: 'KB 33',             docType: 'LOAD_LINE_CERTIFICATE', label: 'Load Line Certificate', folder: 'Survey Certificate/IRS LOAD LINE CERTIFICATE', file: 'LOA_KB 33.pdf' },
   ];
 
-  for (const entry of gaDocMap) {
-    const vessel = await prisma.vessel.findFirst({
-      where: { name: { contains: entry.key, mode: 'insensitive' } },
-    });
-    if (!vessel) {
-      console.warn(`  [DocSeed] Vessel not found for key: ${entry.key} — skipping`);
+  let seededCount = 0;
+  let skippedCount = 0;
+
+  for (const entry of allDocuments) {
+    const filePath = path.join(DOC_SOURCE_DIR, entry.folder, entry.file);
+    if (!fs.existsSync(filePath)) {
+      console.warn(`  [DocSeed] ⚠️  File not found: ${entry.folder}/${entry.file} — skipping`);
+      skippedCount++;
       continue;
     }
-    // Delete existing GA_PLAN doc for this vessel before re-seeding
-    await prisma.vesselDocument.deleteMany({
-      where: { vesselId: vessel.id, docType: 'GA_PLAN' },
-    });
-    await prisma.vesselDocument.create({
-      data: {
-        vesselId: vessel.id,
-        docType: 'GA_PLAN',
-        fileName: entry.file,
-        filePath: `documents/ga_plans/${entry.file}`,
-        description: `General Arrangement Plan — ${vessel.name}`,
+
+    let lookupKey = entry.key;
+    if (lookupKey === 'ZARAH - I') lookupKey = 'ZARAH 1';
+    if (lookupKey === 'ZARAH - II') lookupKey = 'ZARAH 2';
+    if (lookupKey === 'ZARAH - III') lookupKey = 'ZARAH 3';
+    if (lookupKey === 'ZARAH - IV') lookupKey = 'ZARAH 4';
+
+    const vessel = await prisma.vessel.findFirst({
+      where: {
+        OR: [
+          { name: { contains: lookupKey, mode: 'insensitive' } },
+          { name: { contains: entry.key, mode: 'insensitive' } }
+        ]
       },
     });
-    console.log(`  [DocSeed] Seeded GA Plan for ${vessel.name}`);
+
+    if (!vessel) {
+      console.warn(`  [DocSeed] ⚠️  No vessel found for key: "${entry.key}" — skipping`);
+      skippedCount++;
+      continue;
+    }
+
+    const fileBuffer = fs.readFileSync(filePath);
+    const fileDataB64 = fileBuffer.toString('base64');
+
+    // Delete any existing doc of same type for this vessel before re-seeding
+    // (allows re-running the seed safely)
+    const existingDocs = await prisma.vesselDocument.findMany({
+      where: { vesselId: vessel.id, docType: entry.docType, fileName: entry.file },
+    });
+    for (const d of existingDocs) {
+      await prisma.vesselDocumentChunk.deleteMany({
+        where: { docId: d.id },
+      });
+    }
+    await prisma.vesselDocument.deleteMany({
+      where: { vesselId: vessel.id, docType: entry.docType, fileName: entry.file },
+    });
+
+    // Split base64 string into chunks of 4MB (4 * 1024 * 1024 characters) to bypass MongoDB 16MB document limit
+    const chunkSize = 4 * 1024 * 1024;
+    const chunks: string[] = [];
+    for (let i = 0; i < fileDataB64.length; i += chunkSize) {
+      chunks.push(fileDataB64.slice(i, i + chunkSize));
+    }
+
+    const doc = await prisma.vesselDocument.create({
+      data: {
+        vesselId: vessel.id,
+        docType: entry.docType,
+        label: entry.label,
+        fileName: entry.file,
+        mimeType: 'application/pdf',
+        fileSizeBytes: fileBuffer.length,
+        notes: `${entry.label} for ${vessel.name}`,
+      },
+    });
+
+    for (let idx = 0; idx < chunks.length; idx++) {
+      await prisma.vesselDocumentChunk.create({
+        data: {
+          docId: doc.id,
+          chunkNo: idx,
+          data: chunks[idx],
+        },
+      });
+    }
+
+    seededCount++;
+    console.log(`  [DocSeed] ✅  ${entry.label.padEnd(25)} → ${vessel.name} (${Math.round(fileBuffer.length / 1024)}KB)`);
   }
+
+  console.log(`\nDocument seeding complete: ${seededCount} seeded, ${skippedCount} skipped.`);
 
   console.log('🌱 Database seeding completed successfully.');
 }

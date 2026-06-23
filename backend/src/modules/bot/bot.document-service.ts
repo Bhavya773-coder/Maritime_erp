@@ -76,4 +76,21 @@ export class BotDocumentService {
     reply += `\nTo get a specific plan, type: *GA plan for [vessel name]*`;
     return reply;
   }
+
+  /**
+   * Resolve document type string from query text.
+   */
+  public static resolveDocType(text: string): string | null {
+    if (!text) return null;
+    const t = text.toLowerCase().trim();
+
+    if (/ga\s*plan|general\s+arrangement|ga\s+drawing/i.test(t)) return 'GA_PLAN';
+    if (/stability\s*booklet|stability/i.test(t)) return 'STABILITY_BOOKLET';
+    if (/registry/i.test(t)) return 'REGISTRY';
+    if (/insurance/i.test(t)) return 'INSURANCE_CERTIFICATE';
+    if (/survey\s*cert/i.test(t)) return 'SURVEY_CERTIFICATE';
+    if (/load\s*line|load\s+line\s+cert/i.test(t)) return 'LOAD_LINE_CERTIFICATE';
+
+    return null;
+  }
 }

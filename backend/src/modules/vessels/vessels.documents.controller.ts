@@ -2,10 +2,12 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../../middleware/auth';
 import prisma from '../../config/db';
 import { AppError } from '../../middleware/error';
+import fs from 'fs';
+import path from 'path';
 
-function buildDownloadUrl(req: AuthRequest, filePath: string): string {
+function buildDownloadUrl(req: AuthRequest, docId: string): string {
   const base = process.env.SERVER_BASE_URL || `${req.protocol}://${req.get('host')}`;
-  return `${base}/${filePath}`;
+  return `${base}/api/vessels/documents/${docId}/download`;
 }
 
 export const getVesselDocuments = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -24,7 +26,7 @@ export const getVesselDocuments = async (req: AuthRequest, res: Response, next: 
       data: {
         documents: docs.map(d => ({
           ...d,
-          downloadUrl: buildDownloadUrl(req, d.filePath),
+          downloadUrl: buildDownloadUrl(req, d.id),
         })),
       },
     });
@@ -59,11 +61,43 @@ export const searchVesselDocuments = async (req: AuthRequest, res: Response, nex
           vesselType: v.type,
           documents: v.documents.map(d => ({
             ...d,
-            downloadUrl: buildDownloadUrl(req, d.filePath),
+            downloadUrl: buildDownloadUrl(req, d.id),
           })),
         })),
       },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const downloadVesselDocument = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { docId } = req.params;
+    const doc = await prisma.vesselDocument.findUnique({ where: { id: docId } });
+    if (!doc) throw new AppError('Document not found.', 404);
+
+    const chunks = await prisma.vesselDocumentChunk.findMany({
+      where: { docId },
+      orderBy: { chunkNo: 'asc' },
+    });
+
+    if (chunks.length === 0 && doc.filePath) {
+      // Fallback to static on-disk serving if no database chunks exist
+      const absolutePath = path.join(__dirname, '..', '..', '..', doc.filePath);
+      if (fs.existsSync(absolutePath)) {
+        res.setHeader('Content-Type', doc.mimeType || 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${doc.fileName}"`);
+        return res.sendFile(absolutePath);
+      }
+    }
+
+    const fileDataB64 = chunks.map(c => c.data).join('');
+    const fileBuffer = Buffer.from(fileDataB64, 'base64');
+
+    res.setHeader('Content-Type', doc.mimeType || 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${doc.fileName}"`);
+    return res.send(fileBuffer);
   } catch (error) {
     next(error);
   }

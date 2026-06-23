@@ -24,6 +24,7 @@ const envSchema = zod_1.z.object({
     LLAMA_API_URL: zod_1.z.string().optional(),
     LLAMA_MODEL_NAME: zod_1.z.string().default('llama3'),
     LLAMA_API_KEY: zod_1.z.string().optional(),
+    SERVER_BASE_URL: zod_1.z.string().url().optional(),
 });
 const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {

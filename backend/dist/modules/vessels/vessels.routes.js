@@ -6,6 +6,7 @@ const auth_1 = require("../../middleware/auth");
 const validator_1 = require("../../middleware/validator");
 const vessels_controller_1 = require("./vessels.controller");
 const vessels_schema_1 = require("./vessels.schema");
+const vessels_documents_controller_1 = require("./vessels.documents.controller");
 const router = (0, express_1.Router)();
 // Middleware to validate UUID vessel ID params
 const validateVesselId = (req, res, next) => {
@@ -21,6 +22,10 @@ const validateVesselId = (req, res, next) => {
 };
 // Require authentication for all vessel routes
 router.use(auth_1.requireAuth);
+// Document endpoints — all authenticated roles
+router.get('/documents/search', vessels_documents_controller_1.searchVesselDocuments);
+router.get('/documents/:docId/download', vessels_documents_controller_1.downloadVesselDocument);
+router.get('/:id/documents', validateVesselId, vessels_documents_controller_1.getVesselDocuments);
 // Export-ready snapshot MUST be registered before /:id to avoid route collision
 router.get('/export/snapshot', vessels_controller_1.getExportSnapshot);
 // Standard vessel operations

@@ -16,7 +16,7 @@ import {
   getVesselsQuerySchema,
   getHistoryQuerySchema,
 } from './vessels.schema';
-import { getVesselDocuments, searchVesselDocuments } from './vessels.documents.controller';
+import { getVesselDocuments, searchVesselDocuments, downloadVesselDocument } from './vessels.documents.controller';
 
 const router = Router();
 
@@ -39,6 +39,7 @@ router.use(requireAuth);
 
 // Document endpoints — all authenticated roles
 router.get('/documents/search', searchVesselDocuments);
+router.get('/documents/:docId/download', downloadVesselDocument);
 router.get('/:id/documents', validateVesselId, getVesselDocuments);
 
 // Export-ready snapshot MUST be registered before /:id to avoid route collision

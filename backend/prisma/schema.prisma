@@ -186,18 +186,35 @@ model Vessel {
 }
 
 model VesselDocument {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  vesselId     String   @map("vessel_id") @db.ObjectId
-  vessel       Vessel   @relation(fields: [vesselId], references: [id])
-  docType      String   @map("doc_type")
-  fileName     String   @map("file_name")
-  filePath     String   @map("file_path")
-  description  String?
-  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  vesselId      String   @map("vessel_id") @db.ObjectId
+  vessel        Vessel   @relation(fields: [vesselId], references: [id])
+  docType       String   @map("doc_type")
+  label         String?
+  fileName      String   @map("file_name")
+  mimeType      String?  @map("mime_type")
+  fileDataB64   String?  @map("file_data_b64")
+  fileSizeBytes Int?     @map("file_size_bytes")
+  notes         String?
+  uploadedAt    DateTime @default(now()) @map("uploaded_at")
+
+  // Legacy fields
+  filePath      String?  @map("file_path")
+  description   String?
 
   @@index([vesselId])
   @@index([docType])
   @@map("vessel_documents")
+}
+
+model VesselDocumentChunk {
+  id      String @id @default(auto()) @map("_id") @db.ObjectId
+  docId   String @map("doc_id") @db.ObjectId
+  chunkNo Int    @map("chunk_no")
+  data    String
+
+  @@index([docId])
+  @@map("vessel_document_chunks")
 }
 
 model VesselLocationHistory {

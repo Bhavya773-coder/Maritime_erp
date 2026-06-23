@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
+const path_1 = __importDefault(require("path"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
@@ -32,6 +33,8 @@ app.use((0, cors_1.default)({
 // Body parsing middlewares
 app.use(express_1.default.json());
 app.use((0, cookie_parser_1.default)());
+// Serve vessel documents statically (after auth check in routes)
+app.use('/documents', express_1.default.static(path_1.default.join(__dirname, '..', 'documents')));
 // Rate limiting for auth routes specifically, or all API routes
 const apiLimiter = (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000, // 15 minutes
