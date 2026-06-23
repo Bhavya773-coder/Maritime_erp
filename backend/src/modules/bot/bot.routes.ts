@@ -12,6 +12,9 @@ import {
   getPersonalReminders,
   cancelPersonalReminder,
   processDuePersonalReminders,
+  getDelayRequests,
+  approveDelayRequest,
+  rejectDelayRequest,
 } from './bot.controller';
 import { testCommandSchema, personalReminderSchema } from './bot.schema';
 import whatsappRoutes from './whatsapp.routes';
@@ -50,6 +53,11 @@ router.post('/reminders/personal', validate(personalReminderSchema), createPerso
 router.get('/reminders/personal', getPersonalReminders);
 router.delete('/reminders/personal/:id', cancelPersonalReminder);
 router.post('/reminders/personal/process-due', requireRole([Role.OWNER]), processDuePersonalReminders);
+
+// Delay Requests (MANAGER+ only for approval, any role for listing own)
+router.get('/delay-requests', getDelayRequests);
+router.post('/delay-requests/:id/approve', requireRole([Role.OWNER, Role.MANAGER, Role.FLEET_MANAGER]), validateReminderId, approveDelayRequest);
+router.post('/delay-requests/:id/reject', requireRole([Role.OWNER, Role.MANAGER, Role.FLEET_MANAGER]), validateReminderId, rejectDelayRequest);
 
 // Contacts management (OWNER only)
 router.post('/contacts', requireRole([Role.OWNER]), createContact);
