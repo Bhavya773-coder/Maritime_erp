@@ -324,6 +324,102 @@ export class BotReplyService {
       };
     }
 
+    // DELAY - create a delay request for management approval
+    if (command.type === 'DELAY') {
+      if (!command.delayDate) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, 'Please specify when you need the delay until (e.g., "delay until Monday" or "extend to next week").');
+        return { status: 'error', message: 'No delay date specified.' };
+      }
+
+      // Parse the delay date (simple parser for common natural language dates)
+      let proposedDueDate: Date | null = null;
+      const delayLower = command.delayDate.toLowerCase();
+      const now = new Date();
+      
+      if (/tomorrow/.test(delayLower)) {
+        proposedDueDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      } else if (/next week/.test(delayLower)) {
+        proposedDueDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      } else if (/\d+\s+day/.test(delayLower)) {
+        const days = parseInt(delayLower.match(/\d+/)![0]);
+        proposedDueDate = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+      } else if (/\d+\s+week/.test(delayLower)) {
+        const weeks = parseInt(delayLower.match(/\d+/)![0]);
+        proposedDueDate = new Date(now.getTime() + weeks * 7 * 24 * 60 * 60 * 1000);
+      } else if (/\d+\s+month/.test(delayLower)) {
+        const months = parseInt(delayLower.match(/\d+/)![0]);
+        proposedDueDate = new Date(now.setMonth(now.getMonth() + months));
+      } else {
+        // Try to parse as a date string
+        const parsed = new Date(command.delayDate);
+        if (!isNaN(parsed.getTime())) {
+          proposedDueDate = parsed;
+        }
+      }
+
+      if (!proposedDueDate || isNaN(proposedDueDate.getTime())) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, `Could not understand the date: "${command.delayDate}". Try saying "delay until Monday" or "extend by 3 days".`);
+        return { status: 'error', message: 'Invalid date format.' };
+      }
+
+      // Create delay request
+      const delayRequest = await prisma.delayRequest.create({
+        data: {
+          taskId: task.id,
+          requestedById: sender.id,
+          proposedDueDate,
+          reason: command.delayReason || 'Requested via WhatsApp',
+          status: 'PENDING',
+        },
+      });
+
+      // Add task comment
+      await prisma.taskComment.create({
+        data: {
+          taskId: task.id,
+          userId: sender.id,
+          content: `Delay requested until ${proposedDueDate.toISOString().split('T')[0]}: ${command.delayReason || 'Requested via WhatsApp'}`,
+        },
+      });
+
+      // Audit Log
+      await prisma.auditLog.create({
+        data: {
+          userId: sender.id,
+          action: 'BOT_DELAY_REQUESTED',
+          details: `Task "${task.title}" delay requested until ${proposedDueDate.toISOString().split('T')[0]} by ${sender.name}.`,
+        },
+      });
+
+      // Notify management for approval
+      const managers = await prisma.user.findMany({
+        where: { role: { in: ['MANAGER', 'FLEET_MANAGER', 'OWNER'] }, isActive: true },
+      });
+
+      const approvalText = `⏰ Delay Request from ${sender.name} for task "${task.title}"\nRequested until: ${proposedDueDate.toISOString().split('T')[0]}\nReason: ${command.delayReason || 'N/A'}\n\nReply: APPROVE DELAY ${delayRequest.id} or REJECT DELAY ${delayRequest.id}`;
+      
+      for (const manager of managers) {
+        const managerContact = await prisma.userContact.findFirst({
+          where: { userId: manager.id, channel: BotChannel.WHATSAPP },
+        });
+        if (managerContact?.phoneNumber) {
+          await WhatsAppService.sendWhatsAppAndLog(manager.id, managerContact.phoneNumber, approvalText);
+        }
+      }
+
+      // Send confirmation to sender
+      const confirmationText = `Delay request sent for approval. You requested until ${proposedDueDate.toISOString().split('T')[0]}. A manager will review it.`;
+      const senderMsg = await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, confirmationText);
+
+      return {
+        status: 'success',
+        data: {
+          delayRequest,
+          notifications: [senderMsg],
+        },
+      };
+    }
+
     return { status: 'error', message: 'Unknown reply command.' };
   }
 

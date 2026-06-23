@@ -1,5 +1,6 @@
 import prisma from '../../config/db';
 import { env } from '../../config/env';
+import { generateSignedUrl } from '../../modules/documents/signed-url-controller';
 
 export interface DocumentSearchResult {
   vessel: any;
@@ -61,7 +62,13 @@ export class BotDocumentService {
     }
 
     const doc = best.documents[0];
-    const url = encodeURI(`${this.getBaseUrl()}/${doc.filePath}`);
+    let url: string;
+    try {
+      url = generateSignedUrl(doc.filePath, 3600); // 1 hour signed URL
+    } catch {
+      // Fallback to plain URL if signing secret not configured
+      url = encodeURI(`${this.getBaseUrl()}/${doc.filePath}`);
+    }
 
     return {
       vessel: best,

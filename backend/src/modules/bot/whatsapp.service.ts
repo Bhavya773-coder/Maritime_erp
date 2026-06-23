@@ -1,5 +1,6 @@
 import prisma from '../../config/db';
 import { env } from '../../config/env';
+import crypto from 'crypto';
 import { BotService } from './bot.service';
 import { BotChannel } from '@prisma/client';
 import { BotReplyService } from './bot.reply-service';
@@ -9,6 +10,8 @@ import { BotFleetParser } from './bot.fleet-parser';
 import { BotFleetService } from './bot.fleet-service';
 import { BotDocumentParser } from './bot.document-parser';
 import { BotDocumentService } from './bot.document-service';
+import { ConversationContextService } from './conversation-context';
+import { ConfirmationService } from './confirmation-service';
 
 export class WhatsAppService {
   /**
@@ -460,6 +463,87 @@ export class WhatsAppService {
   }
 
   /**
+   * Meta Webhook signature verification
+   */
+  public static verifyWebhookSignature(signature: string | undefined, body: any): boolean {
+    const appSecret = process.env.WHATSAPP_APP_SECRET || env.META_APP_SECRET;
+    if (!appSecret) {
+      // If app secret is not configured, pass validation for ease of local testing
+      return true;
+    }
+    if (!signature) {
+      return false;
+    }
+    try {
+      const rawBody = typeof body === 'string' ? body : JSON.stringify(body);
+      const sigHash = signature.startsWith('sha256=') ? signature.substring(7) : signature;
+      const expectedHash = crypto
+        .createHmac('sha256', appSecret)
+        .update(rawBody)
+        .digest('hex');
+      
+      return sigHash === expectedHash;
+    } catch (err) {
+      console.error('[WhatsAppService] Error verifying signature:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Downloads media file from Meta Graph API using the media ID.
+   * Saves it to local storage and returns the local file path.
+   */
+  public static async downloadWhatsAppMedia(mediaId: string, targetFilename: string): Promise<string> {
+    if (!env.WHATSAPP_ACCESS_TOKEN) {
+      console.warn('[WhatsAppService] WHATSAPP_ACCESS_TOKEN not set. Simulating media download.');
+      return `documents/uploads/${targetFilename}`;
+    }
+
+    try {
+      const metadataUrl = `https://graph.facebook.com/${env.WHATSAPP_API_VERSION}/${mediaId}`;
+      const metaRes = await fetch(metadataUrl, {
+        headers: { 'Authorization': `Bearer ${env.WHATSAPP_ACCESS_TOKEN}` }
+      });
+
+      if (!metaRes.ok) {
+        throw new Error(`Failed to fetch media metadata: HTTP ${metaRes.status}`);
+      }
+
+      const metadata: any = await metaRes.json();
+      const downloadUrl = metadata.url;
+
+      if (!downloadUrl) {
+        throw new Error('Media download URL is missing from metadata');
+      }
+
+      const mediaRes = await fetch(downloadUrl, {
+        headers: { 'Authorization': `Bearer ${env.WHATSAPP_ACCESS_TOKEN}` }
+      });
+
+      if (!mediaRes.ok) {
+        throw new Error(`Failed to download media file: HTTP ${mediaRes.status}`);
+      }
+
+      const fs = require('fs');
+      const path = require('path');
+      const uploadDir = path.join(__dirname, '../../../documents/uploads');
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+
+      const destPath = path.join(uploadDir, targetFilename);
+      const buffer = Buffer.from(await mediaRes.arrayBuffer());
+      fs.writeFileSync(destPath, buffer);
+      
+      console.log(`[WhatsAppService] Media downloaded and saved to: ${destPath}`);
+      return `documents/uploads/${targetFilename}`;
+    } catch (err: any) {
+      console.error('[WhatsAppService] Error downloading media:', err);
+      throw err;
+    }
+  }
+
+  /**
    * Process webhook entry payload
    */
   public static async handleIncomingWebhook(payload: any): Promise<void> {
@@ -475,6 +559,10 @@ export class WhatsAppService {
                 const fromPhone = msg.from;
                 const messageId = msg.id;
 
+                let mediaId = '';
+                let mediaType = '';
+                let mediaFilename = '';
+
                 if (msg.type === 'text' && msg.text && msg.text.body) {
                   textBody = msg.text.body;
                 } else if (msg.type === 'interactive' && msg.interactive) {
@@ -485,10 +573,26 @@ export class WhatsAppService {
                     textBody = msg.interactive.list_reply.title || '';
                     buttonId = msg.interactive.list_reply.id || '';
                   }
+                } else if (msg.type === 'document' && msg.document) {
+                  mediaId = msg.document.id;
+                  mediaType = 'document';
+                  mediaFilename = msg.document.filename || `document-${Date.now()}.pdf`;
+                  textBody = msg.document.caption || `[Uploaded Document: ${mediaFilename}]`;
+                } else if (msg.type === 'image' && msg.image) {
+                  mediaId = msg.image.id;
+                  mediaType = 'image';
+                  mediaFilename = `image-${Date.now()}.jpg`;
+                  textBody = msg.image.caption || `[Uploaded Image: ${mediaFilename}]`;
                 }
 
                 if (textBody) {
-                  await this.processIncomingMessage(fromPhone, textBody, messageId, buttonId);
+                  await this.processIncomingMessage(
+                    fromPhone, 
+                    textBody, 
+                    messageId, 
+                    buttonId,
+                    mediaId ? { mediaId, mediaType, mediaFilename } : undefined
+                  );
                 }
               }
             }
@@ -505,11 +609,11 @@ export class WhatsAppService {
     fromPhone: string,
     textBody: string,
     providerMessageId: string,
-    buttonId?: string
+    buttonId?: string,
+    mediaInfo?: { mediaId: string; mediaType: string; mediaFilename: string }
   ): Promise<any> {
     const cleanPhone = this.normalizePhone(fromPhone);
     const originalTextBody = textBody;
-    let currentText = textBody;
 
     // Deduplication check
     const existingMessage = await prisma.botMessage.findFirst({
@@ -534,22 +638,67 @@ export class WhatsAppService {
         user: true,
       },
     });
-    const owner = await prisma.user.findFirst({
-      where: { email: 'owner@apil.local' },
-    });
 
-    const senderUser = contact
-      ? contact.user
-      : {
-          ...owner!,
+    let senderUser: any = null;
+
+    if (contact && contact.user && contact.user.isActive) {
+      senderUser = contact.user;
+    } else if (providerMessageId && providerMessageId.startsWith('simulated-msg-')) {
+      // Fallback to Owner for test simulations
+      const owner = await prisma.user.findFirst({
+        where: { email: 'owner@apil.local' },
+      });
+      if (owner) {
+        senderUser = {
+          ...owner,
           name: `Unregistered (${cleanPhone})`,
         };
+      }
+    }
+
+    if (!senderUser) {
+      // Reject unknown or inactive numbers safely
+      const replyText = "Your WhatsApp number is not registered with this company. Please contact the administrator.";
+      await prisma.botMessage.create({
+        data: {
+          direction: 'INCOMING',
+          channel: BotChannel.WHATSAPP,
+          fromPhone: cleanPhone,
+          rawText: originalTextBody,
+          messageType: 'TEXT',
+          status: 'RECEIVED',
+          providerMessageId,
+        },
+      });
+      const outgoing = await this.sendWhatsAppAndLog(null, cleanPhone, replyText);
+      return { status: 'failed', message: replyText, outgoing: [outgoing] };
+    }
+
+    // Per-user rate limiting
+    const recentMessages = await prisma.botMessage.count({
+      where: {
+        fromUserId: senderUser.id,
+        direction: 'INCOMING',
+        channel: BotChannel.WHATSAPP,
+        createdAt: { gte: new Date(Date.now() - env.RATE_LIMIT_WHATSAPP_WINDOW_MS) },
+      },
+    });
+    if (recentMessages > env.RATE_LIMIT_WHATSAPP_MAX) {
+      const replyText = "You are sending messages too quickly. Please wait a moment and try again.";
+      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+      return { status: 'rate_limited', message: replyText, outgoing: [outgoing] };
+    }
 
     // A. Handle cancel/exit command to clear active sessions
     const lowerText = textBody.trim().toLowerCase();
     if (lowerText === 'cancel' || lowerText === 'exit') {
       const deleted = await prisma.botSession.deleteMany({
         where: { userId: senderUser.id }
+      });
+      const { ConversationContextService } = require('./conversation-context');
+      await ConversationContextService.setContext(senderUser.id, {
+        pendingConfirmation: null,
+        pendingClarification: null,
       });
       if (deleted.count > 0) {
         await prisma.botMessage.create({
@@ -574,8 +723,6 @@ export class WhatsAppService {
     if (buttonId) {
       if (buttonId.startsWith('task_done:')) {
         const taskId = buttonId.split(':')[1];
-        
-        // Log incoming message for button click
         await prisma.botMessage.create({
           data: {
             direction: 'INCOMING',
@@ -588,7 +735,6 @@ export class WhatsAppService {
             providerMessageId,
           },
         });
-
         const replyCommand = { type: 'DONE' as const, targetTaskId: taskId };
         return await BotReplyService.executeReplyCommand(senderUser, replyCommand, cleanPhone, providerMessageId);
       }
@@ -602,14 +748,12 @@ export class WhatsAppService {
           return { status: 'error', message: replyText, outgoing: [outgoing] };
         }
 
-        // Save session state
         await prisma.botSession.upsert({
           where: { userId: senderUser.id },
           create: { userId: senderUser.id, state: 'AWAITING_TASK_UPDATE', taskId },
           update: { state: 'AWAITING_TASK_UPDATE', taskId }
         });
 
-        // Log incoming message
         await prisma.botMessage.create({
           data: {
             direction: 'INCOMING',
@@ -637,14 +781,12 @@ export class WhatsAppService {
           return { status: 'error', message: replyText, outgoing: [outgoing] };
         }
 
-        // Save session state
         await prisma.botSession.upsert({
           where: { userId: senderUser.id },
           create: { userId: senderUser.id, state: 'AWAITING_TASK_DELEGATION', taskId },
           update: { state: 'AWAITING_TASK_DELEGATION', taskId }
         });
 
-        // Log incoming message
         await prisma.botMessage.create({
           data: {
             direction: 'INCOMING',
@@ -675,7 +817,6 @@ export class WhatsAppService {
           return { status: 'error', message: replyText, outgoing: [outgoing] };
         }
 
-        // Log incoming message
         await prisma.botMessage.create({
           data: {
             direction: 'INCOMING',
@@ -697,12 +838,7 @@ export class WhatsAppService {
         };
 
         const result = await BotReplyService.executeReplyCommand(senderUser, replyCommand, cleanPhone, providerMessageId);
-
-        // Clear session
-        await prisma.botSession.deleteMany({
-          where: { userId: senderUser.id }
-        });
-
+        await prisma.botSession.deleteMany({ where: { userId: senderUser.id } });
         return result;
       }
     }
@@ -714,7 +850,6 @@ export class WhatsAppService {
 
     if (session) {
       if (session.state === 'AWAITING_TASK_UPDATE' && session.taskId) {
-        // Log incoming message
         await prisma.botMessage.create({
           data: {
             direction: 'INCOMING',
@@ -735,17 +870,11 @@ export class WhatsAppService {
         };
 
         const result = await BotReplyService.executeReplyCommand(senderUser, replyCommand, cleanPhone, providerMessageId);
-        
-        // Clear session
-        await prisma.botSession.delete({
-          where: { userId: senderUser.id }
-        });
-
+        await prisma.botSession.delete({ where: { userId: senderUser.id } });
         return result;
       }
 
       if (session.state === 'AWAITING_TASK_DELEGATION' && session.taskId) {
-        // Log incoming message
         await prisma.botMessage.create({
           data: {
             direction: 'INCOMING',
@@ -768,7 +897,6 @@ export class WhatsAppService {
         }
 
         if (candidates.length > 1) {
-          // If there are multiple matches, let them choose using interactive buttons! (Max 3 candidates)
           if (candidates.length <= 3) {
             const bodyText = `Multiple matches found for "${textBody}". Please select the correct assignee below:`;
             const buttons = candidates.map(c => ({
@@ -788,7 +916,6 @@ export class WhatsAppService {
           }
         }
 
-        // Exactly one match
         const assignee = candidates[0];
         const replyCommand = { 
           type: 'DELEGATE' as const, 
@@ -798,20 +925,64 @@ export class WhatsAppService {
         };
 
         const result = await BotReplyService.executeReplyCommand(senderUser, replyCommand, cleanPhone, providerMessageId);
+        await prisma.botSession.delete({ where: { userId: senderUser.id } });
+        return result;
+      }
 
-        // Clear session
-        await prisma.botSession.delete({
-          where: { userId: senderUser.id }
+      // Handle document/image link session state
+      if (session.state.startsWith('AWAITING_MEDIA_LINK:')) {
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
         });
 
-        return result;
+        const firstColonIdx = session.state.indexOf(':');
+        const lastColonIdx = session.state.lastIndexOf(':');
+        const secondLastColonIdx = session.state.lastIndexOf(':', lastColonIdx - 1);
+        const savedPathParsed = session.state.substring(firstColonIdx + 1, secondLastColonIdx);
+        const mediaFilenameParsed = session.state.substring(secondLastColonIdx + 1, lastColonIdx);
+        const mediaTypeParsed = session.state.substring(lastColonIdx + 1);
+
+        const vessel = await prisma.vessel.findFirst({
+          where: { name: { contains: textBody, mode: 'insensitive' }, deletedAt: null }
+        });
+
+        if (!vessel) {
+          const replyText = `Could not find a vessel matching "${textBody}". Please try again with the correct name, or type "cancel" to exit.`;
+          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+          return { status: 'failed', message: replyText, outgoing: [outgoing] };
+        }
+
+        const newDoc = await prisma.vesselDocument.create({
+          data: {
+            vesselId: vessel.id,
+            docType: mediaTypeParsed === 'image' ? 'IMAGE' : 'DOCUMENT',
+            fileName: mediaFilenameParsed,
+            filePath: savedPathParsed,
+            description: `Uploaded via WhatsApp by ${senderUser.name}`
+          }
+        });
+
+        const { ConversationContextService } = require('./conversation-context');
+        await ConversationContextService.setRecentAsset(senderUser.id, vessel.id, vessel.name);
+
+        const replyText = `📄 File "${mediaFilenameParsed}" has been successfully attached to vessel *${vessel.name}*.`;
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        await prisma.botSession.delete({ where: { userId: senderUser.id } });
+        return { status: 'success', message: replyText, outgoing: [outgoing] };
       }
     }
 
-    // C.5 Parse and Execute Direct Reply Commands (e.g. UPDATE, DONE, STATUS, HELP, DELEGATE)
-    const replyCommand = BotReplyParser.parse(textBody);
-    if (replyCommand) {
-      // Log incoming message
+    // D. Process media attachments if present
+    if (mediaInfo) {
       await prisma.botMessage.create({
         data: {
           direction: 'INCOMING',
@@ -819,81 +990,75 @@ export class WhatsAppService {
           fromUserId: senderUser.id,
           fromPhone: cleanPhone,
           rawText: originalTextBody,
-          messageType: 'TEXT',
+          messageType: mediaInfo.mediaType.toUpperCase(),
           status: 'RECEIVED',
           providerMessageId,
         },
       });
 
-      return await BotReplyService.executeReplyCommand(senderUser, replyCommand, cleanPhone, providerMessageId);
-    }
+      let savedPath = '';
+      try {
+        savedPath = await this.downloadWhatsAppMedia(mediaInfo.mediaId, mediaInfo.mediaFilename);
+      } catch (err: any) {
+        console.error('[WhatsAppService] Webhook media download failed:', err);
+        const replyText = "⚠️ I received your attachment but had an error downloading it. Please try again.";
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        return { status: 'error', message: replyText, outgoing: [outgoing] };
+      }
 
-    // C.6 Parse and Execute Fleet Query Commands (e.g. Where is ARCADIA 1, Show all barges)
-    const fleetQuery = BotFleetParser.parse(textBody);
-    if (fleetQuery) {
-      // Log incoming message
-      await prisma.botMessage.create({
-        data: {
-          direction: 'INCOMING',
-          channel: BotChannel.WHATSAPP,
-          fromUserId: senderUser.id,
-          fromPhone: cleanPhone,
-          rawText: originalTextBody,
-          messageType: 'TEXT',
-          status: 'RECEIVED',
-          providerMessageId,
-        },
+      const { ConversationContextService } = require('./conversation-context');
+      const ctxState = await ConversationContextService.getContext(senderUser.id);
+
+      if (ctxState.recentAssetId) {
+        const vessel = await prisma.vessel.findUnique({
+          where: { id: ctxState.recentAssetId }
+        });
+
+        if (vessel) {
+          const newDoc = await prisma.vesselDocument.create({
+            data: {
+              vesselId: vessel.id,
+              docType: mediaInfo.mediaType === 'image' ? 'IMAGE' : 'DOCUMENT',
+              fileName: mediaInfo.mediaFilename,
+              filePath: savedPath,
+              description: `Uploaded via WhatsApp by ${senderUser.name}`
+            }
+          });
+
+          let replyText = `📄 I have saved your file "${mediaInfo.mediaFilename}" and attached it to vessel *${vessel.name}*.`;
+
+          if (ctxState.recentTaskId) {
+            const task = await prisma.task.findUnique({ where: { id: ctxState.recentTaskId } });
+            if (task) {
+              const fileUrl = `${BotDocumentService.getBaseUrl()}/${savedPath}`;
+              await prisma.taskComment.create({
+                data: {
+                  taskId: task.id,
+                  userId: senderUser.id,
+                  content: `📎 Attached file: ${mediaInfo.mediaFilename}\n🔗 View file: ${fileUrl}`
+                }
+              });
+              replyText += `\nI have also linked it to the task: "${task.title}".`;
+            }
+          }
+
+          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+          return { status: 'success', message: replyText, outgoing: [outgoing] };
+        }
+      }
+
+      const replyText = `I received your document "${mediaInfo.mediaFilename}". Please reply with the name of the vessel this document belongs to (e.g. "KB-26") so I can link it.`;
+      await prisma.botSession.upsert({
+        where: { userId: senderUser.id },
+        create: { userId: senderUser.id, state: `AWAITING_MEDIA_LINK:${savedPath}:${mediaInfo.mediaFilename}:${mediaInfo.mediaType}` },
+        update: { state: `AWAITING_MEDIA_LINK:${savedPath}:${mediaInfo.mediaFilename}:${mediaInfo.mediaType}` }
       });
 
-      const replyText = await BotFleetService.executeQuery(fleetQuery, senderUser.id);
       const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
       return { status: 'success', message: replyText, outgoing: [outgoing] };
     }
 
-    // C.7 Parse and Execute Document Queries (e.g. "GA plan for ARCADIA SUMERU", "list GA plans", "registry for KB 24")
-    const docQuery = BotDocumentParser.parse(textBody);
-    if (docQuery) {
-      await prisma.botMessage.create({
-        data: {
-          direction: 'INCOMING',
-          channel: BotChannel.WHATSAPP,
-          fromUserId: senderUser.id,
-          fromPhone: cleanPhone,
-          rawText: originalTextBody,
-          messageType: 'TEXT',
-          status: 'RECEIVED',
-          providerMessageId,
-        },
-      });
-
-      if (docQuery.type === 'LIST_DOCUMENTS') {
-        const replyText = await BotDocumentService.listAllDocuments(docQuery.docType!);
-        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-        return { status: 'success', message: replyText, outgoing: [outgoing] };
-      } else {
-        // GET_DOCUMENT
-        const result = await BotDocumentService.getDocumentRecord(docQuery.vesselName!, docQuery.docType!);
-        if (!result || !result.doc) {
-          // Fallback to text message explaining vessel not found or missing document
-          const replyText = await BotDocumentService.getDocumentReply(docQuery.vesselName!, docQuery.docType!);
-          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-          return { status: 'success', message: replyText, outgoing: [outgoing] };
-        }
-
-        // Send the actual PDF document attachment!
-        const outgoing = await this.sendWhatsAppDocumentAndLog(
-          senderUser.id,
-          cleanPhone,
-          result.url,
-          result.doc.fileName,
-          `📄 ${result.doc.description || result.doc.fileName}`
-        );
-        const replyText = `[Sent Document: ${result.doc.fileName}]`;
-        return { status: 'success', message: replyText, outgoing: [outgoing] };
-      }
-    }
-
-    // D. Route ALL messages through the LLM
+    // E. Route all regular messages through the LLM agent orchestrator loop
     // Only "menu" gets a special fast-path for WhatsApp interactive buttons
     const cleanMsg = textBody.trim().toLowerCase();
     if (cleanMsg === 'menu' || cleanMsg === 'buttons') {
@@ -925,8 +1090,49 @@ export class WhatsAppService {
       };
     }
 
-    // E. LLM-powered AI response for ALL other messages
+    // Process using LLM Orchestrator
     try {
+      // Check for pending confirmations first
+      const { ConfirmationService } = require('./confirmation-service');
+      const pendingRes = await ConfirmationService.handleConfirmation(senderUser.id, senderUser, textBody);
+      
+      if (pendingRes && pendingRes.status !== 'NO_PENDING') {
+        // Log incoming message
+        await prisma.botMessage.create({
+          data: {
+            direction: 'INCOMING',
+            channel: BotChannel.WHATSAPP,
+            fromUserId: senderUser.id,
+            fromPhone: cleanPhone,
+            rawText: originalTextBody,
+            messageType: 'TEXT',
+            status: 'RECEIVED',
+            providerMessageId,
+          },
+        });
+
+        const replyText = pendingRes.message || "Action processed.";
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        
+        let extraOutgoings: any[] = [];
+        if (pendingRes.status === 'CONFIRMED' && pendingRes.result?.notifications) {
+          // Send notifications from execution if any
+          for (const n of pendingRes.result.notifications) {
+            if (n.toPhone) {
+              const notifMsg = await this.sendWhatsAppAndLog(n.toUserId, n.toPhone, n.text);
+              extraOutgoings.push(notifMsg);
+            }
+          }
+        }
+
+        return {
+          status: 'success',
+          message: replyText,
+          outgoing: [outgoing, ...extraOutgoings],
+        };
+      }
+
+      // Normal message -> LLM agent loop with tool-calling
       const translation = await LlmService.translateMessage(
         textBody,
         senderUser.id,
@@ -949,111 +1155,60 @@ export class WhatsAppService {
       });
 
       if (!translation.isERPRelated) {
-        const replyText = translation.directResponse || "I am an ERP assistant and can only help with ERP tasks like scheduling, vessel updates, and staff queries. Please ask an office-related question.";
+        const replyText = translation.directResponse || "I am an ERP assistant and can only help with ERP tasks.";
         const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-        return {
-          status: 'failed',
-          message: replyText,
-          outgoing: [outgoing],
-        };
+        return { status: 'failed', message: replyText, outgoing: [outgoing] };
       }
 
-      // Execute database operations if requested by AI
-      let notifications: any[] = [];
-      let taskCreatedByLLM = false;
-      if (translation.dbOperations && translation.dbOperations.length > 0) {
-        const opResult = await LlmService.executeDbOperations(
-          translation.dbOperations,
-          senderUser.id,
-          senderUser.name
-        );
-        notifications = opResult.notifications;
-        taskCreatedByLLM = translation.dbOperations.some((op: any) => op.action === 'createTask');
-      }
+      let replyText = translation.directResponse || "I have processed your request.";
 
-      // FALLBACK: If LLM did not perform any db operations and did not return a direct response
-      if (!translation.directResponse && (!translation.dbOperations || translation.dbOperations.length === 0)) {
-        console.log(`[WhatsAppService] LLM did not return directResponse or dbOperations. Falling back to legacy parser.`);
-        return await BotService.processCommand(
-          textBody,
-          senderUser,
-          {
-            channel: BotChannel.WHATSAPP,
-            fromPhone: cleanPhone,
-            providerMessageId,
+      // Dispatch notifications from tool execution if present
+      const outgoingNotifications: any[] = [];
+      if (translation.notifications && translation.notifications.length > 0) {
+        for (const n of translation.notifications) {
+          if (!n.toPhone) continue;
+          const nText = n.text || n.rawText;
+          if (!nText) continue;
+          try {
+            const notifMsg = await this.sendWhatsAppAndLog(n.toUserId || null, n.toPhone, nText);
+            outgoingNotifications.push(notifMsg);
+          } catch (sendErr: any) {
+            console.error(`[WhatsAppService] Failed to send notification: ${sendErr.message}`);
+            continue;
           }
-        );
-      }
-
-      // Safety net: if LLM claimed to create a task but didn't include dbOperations,
-      // warn the user so they know to retry
-      let replyText = translation.directResponse || "I understood your message but had trouble generating a response. Please try again.";
-      const isTaskLikeMessage = /task|assign|give.*to|send.*to|ask.*to/i.test(textBody);
-      if (isTaskLikeMessage && !taskCreatedByLLM) {
-        console.warn('[WhatsAppService] LLM claimed to create a task but dbOperations was empty. Warning user.');
-        replyText += "\n\n⚠️ I couldn't actually create the task. Please retry with a clearer message like: \"Assign [task description] to [person name]\"";
+          if (n.messageType === 'INTERACTIVE_BUTTON' && n.taskId && n.toUserId) {
+            const inWindow = await this.isWithinConversationWindow(n.toUserId);
+            if (inWindow) {
+              try {
+                const buttonNotif = await this.sendWhatsAppTaskButtonsAndLog(
+                  n.toUserId,
+                  n.toPhone,
+                  nText,
+                  n.taskId
+                );
+                outgoingNotifications.push(buttonNotif);
+              } catch (btnErr: any) {
+                console.warn('[WhatsAppService] Buttons follow-up failed:', btnErr.message);
+              }
+            }
+          }
+        }
       }
 
       const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-
-      // Dispatch and log generated notifications
-      // For new users outside 24h window: sendWhatsAppAndLog auto-detects template and sends template message
-      // For users inside 24h window: also send interactive buttons as follow-up for convenience
-      const outgoingNotifications: any[] = [];
-      console.log(`[WhatsAppService] Processing ${notifications.length} notification(s) from LLM operations...`);
-      for (const n of notifications) {
-        if (!n.toPhone) {
-          console.warn(`[WhatsAppService] Notification skipped for user ${n.toUserId}: no phone number.`);
-          continue;
-        }
-        console.log(`[WhatsAppService] Dispatching notification to phone ${n.toPhone}: "${n.rawText.substring(0, 80)}..."`);
-
-        // Step 1: Always send the message (template or text) — bypasses 24h window for templates
-        let outgoingNotif;
-        try {
-          outgoingNotif = await this.sendWhatsAppAndLog(
-            n.toUserId || null,
-            n.toPhone,
-            n.rawText
-          );
-          outgoingNotifications.push(outgoingNotif);
-        } catch (sendErr: any) {
-          console.error(`[WhatsAppService] FAILED to send notification to ${n.toPhone}: ${sendErr.message}`);
-          continue;
-        }
-
-        // Step 2: If user is within 24h window, also send interactive buttons for convenience
-        if (n.messageType === 'INTERACTIVE_BUTTON' && n.taskId && n.toUserId) {
-          const inWindow = await this.isWithinConversationWindow(n.toUserId);
-          if (inWindow) {
-            try {
-              const buttonNotif = await this.sendWhatsAppTaskButtonsAndLog(
-                n.toUserId,
-                n.toPhone,
-                n.rawText,
-                n.taskId
-              );
-              outgoingNotifications.push(buttonNotif);
-              console.log(`[WhatsAppService] Also sent interactive buttons to user ${n.toUserId}`);
-            } catch (btnErr: any) {
-              console.warn('[WhatsAppService] Buttons follow-up failed (non-critical):', btnErr.message);
-            }
-          } else {
-            console.log(`[WhatsAppService] User ${n.toUserId} outside 24h window. Skipped interactive buttons.`);
-          }
-        }
-      }
-      console.log(`[WhatsAppService] Notification dispatch complete. Total outgoing messages: ${outgoingNotifications.length}`);
-
       return {
         status: 'success',
-        message: translation.directResponse,
+        message: replyText,
         outgoing: [outgoing, ...outgoingNotifications],
+        data: {
+          task: translation.task,
+          notifications: [outgoing, ...(translation.notifications || [])]
+        }
       };
-    } catch (err) {
-      console.error('[WhatsAppService] Error during LLM processing:', err);
 
-      // Log incoming message even on error
+    } catch (err: any) {
+      console.error('[WhatsAppService] Error during LLM agent processing:', err);
+
       await prisma.botMessage.create({
         data: {
           direction: 'INCOMING',

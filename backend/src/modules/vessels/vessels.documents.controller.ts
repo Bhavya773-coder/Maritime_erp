@@ -2,10 +2,16 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../../middleware/auth';
 import prisma from '../../config/db';
 import { AppError } from '../../middleware/error';
+import { generateSignedUrl } from '../../modules/documents/signed-url-controller';
 
 function buildDownloadUrl(req: AuthRequest, filePath: string): string {
-  const base = process.env.SERVER_BASE_URL || `${req.protocol}://${req.get('host')}`;
-  return encodeURI(`${base}/${filePath}`);
+  try {
+    return generateSignedUrl(filePath, 3600); // 1 hour expiry
+  } catch {
+    // Fallback to plain URL if signing secret not configured (dev mode)
+    const base = process.env.SERVER_BASE_URL || `${req.protocol}://${req.get('host')}`;
+    return encodeURI(`${base}/${filePath}`);
+  }
 }
 
 export const getVesselDocuments = async (req: AuthRequest, res: Response, next: NextFunction) => {

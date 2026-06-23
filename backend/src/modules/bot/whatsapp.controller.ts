@@ -24,6 +24,13 @@ export const verifyWebhook = async (req: AuthRequest, res: Response, next: NextF
 
 export const receiveWebhook = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    // Verify Meta webhook signature if META_APP_SECRET is configured
+    const signature = req.headers['x-hub-signature-256'] as string;
+    const isValid = WhatsAppService.verifyWebhookSignature(signature, req.body);
+    if (!isValid) {
+      console.warn('[WhatsAppController] Webhook signature verification failed');
+      return res.status(403).json({ status: 'error', message: 'Invalid signature' });
+    }
     await WhatsAppService.handleIncomingWebhook(req.body);
     return res.status(200).json({ status: 'success' });
   } catch (error) {

@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { errorHandler, notFoundHandler } from './middleware/error';
+import { downloadDocument } from './modules/documents/signed-url-controller';
 import authRoutes from './modules/auth/auth.routes';
 import taskRoutes from './modules/tasks/tasks.routes';
 import userRoutes from './modules/users/users.routes';
@@ -37,8 +38,11 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
-// Serve vessel documents statically (after auth check in routes)
-app.use('/documents', express.static(path.join(__dirname, '..', 'documents')));
+// DO NOT serve documents statically — use signed URLs instead (security fix)
+// app.use('/documents', express.static(path.join(__dirname, '..', 'documents')));
+
+// Signed document download endpoint (replaces static serving)
+app.get('/api/documents/download', downloadDocument);
 
 // Rate limiting for auth routes specifically, or all API routes
 const apiLimiter = rateLimit({

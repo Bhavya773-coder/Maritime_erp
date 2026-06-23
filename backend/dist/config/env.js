@@ -6,7 +6,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.env = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 const zod_1 = require("zod");
-// Load env variables
 dotenv_1.default.config();
 const envSchema = zod_1.z.object({
     DATABASE_URL: zod_1.z.string().url(),
@@ -21,9 +20,32 @@ const envSchema = zod_1.z.object({
     WHATSAPP_API_VERSION: zod_1.z.string().default('v20.0'),
     WHATSAPP_TEMPLATE_NAME: zod_1.z.string().optional(),
     WHATSAPP_TEMPLATE_LANG: zod_1.z.string().default('en'),
-    LLAMA_API_URL: zod_1.z.string().optional(),
+    // AI Service (new)
+    AI_CHAT_ENDPOINT: zod_1.z.string().url().optional(),
+    AI_MODEL: zod_1.z.string().default('llama3:latest'),
+    LLAMA_API_URL: zod_1.z.string().optional(), // legacy fallback
     LLAMA_MODEL_NAME: zod_1.z.string().default('llama3'),
     LLAMA_API_KEY: zod_1.z.string().optional(),
+    // Meta Webhook Security (new)
+    META_APP_SECRET: zod_1.z.string().optional(),
+    // Document Security (new)
+    DOCUMENT_SIGNING_SECRET: zod_1.z.string().optional(),
+    DOCUMENT_URL_EXPIRY_MINUTES: zod_1.z.coerce.number().default(60),
+    // Rate Limiting (new)
+    RATE_LIMIT_WHATSAPP_WINDOW_MS: zod_1.z.coerce.number().default(60000),
+    RATE_LIMIT_WHATSAPP_MAX: zod_1.z.coerce.number().default(30),
+    // Business Hours (new)
+    BUSINESS_HOURS_START: zod_1.z.string().default('08:00'),
+    BUSINESS_HOURS_END: zod_1.z.string().default('20:00'),
+    TIMEZONE: zod_1.z.string().default('Asia/Kolkata'),
+    // Compliance Reminders (new)
+    COMPLIANCE_REMINDER_OWNER_IDS: zod_1.z.string().optional(),
+    COMPLIANCE_REMINDER_STAFF_IDS: zod_1.z.string().optional(),
+    // Job Scheduler (new)
+    ENABLE_CRON_JOBS: zod_1.z.string().default('true'),
+    REMINDER_CRON_EXPRESSION: zod_1.z.string().default('0 8 * * *'),
+    IDEMPOTENCY_CLEANUP_CRON: zod_1.z.string().default('0 2 * * *'),
+    // Legacy
     SERVER_BASE_URL: zod_1.z.string().url().optional(),
 });
 const parsed = envSchema.safeParse(process.env);

@@ -2,55 +2,18 @@ import app from './app';
 import { env } from './config/env';
 import https from 'https';
 import http from 'http';
-import { BotReminderService } from './modules/bot/bot.reminder-service';
-import { BotPersonalReminderService } from './modules/bot/bot.personal-reminder-service';
+import { JobScheduler } from './modules/jobs/scheduler';
 
 const server = app.listen(env.PORT, () => {
   console.log(`🚀 Maritime ERP Server listening on port ${env.PORT} in ${env.NODE_ENV} mode`);
 
-  // Run due reminders check immediately on server startup after a 5 second delay
-  setTimeout(async () => {
-    try {
-      console.log('[Scheduler] Running initial due reminders check...');
-      const stats = await BotReminderService.processDueReminders();
-      console.log('[Scheduler] Initial reminders check finished:', stats);
-    } catch (err) {
-      console.error('[Scheduler] Error running initial reminders check:', err);
-    }
-  }, 5000);
-
-  // Run due personal reminders check immediately on server startup after a 7 second delay
-  setTimeout(async () => {
-    try {
-      console.log('[Scheduler] Running initial due personal reminders check...');
-      const stats = await BotPersonalReminderService.processDuePersonalReminders();
-      console.log('[Scheduler] Initial personal reminders check finished:', stats);
-    } catch (err) {
-      console.error('[Scheduler] Error running initial personal reminders check:', err);
-    }
-  }, 7000);
-
-  // Set up repeating due reminders check every 5 minutes
-  setInterval(async () => {
-    try {
-      console.log('[Scheduler] Running due reminders check...');
-      const stats = await BotReminderService.processDueReminders();
-      console.log('[Scheduler] Reminders check finished:', stats);
-    } catch (err) {
-      console.error('[Scheduler] Error running reminders check:', err);
-    }
-  }, 5 * 60 * 1000); // 5 minutes
-
-  // Set up repeating due personal reminders check every 1 minute
-  setInterval(async () => {
-    try {
-      console.log('[Scheduler] Running due personal reminders check...');
-      const stats = await BotPersonalReminderService.processDuePersonalReminders();
-      console.log('[Scheduler] Personal reminders check finished:', stats);
-    } catch (err) {
-      console.error('[Scheduler] Error running personal reminders check:', err);
-    }
-  }, 1 * 60 * 1000); // 1 minute
+  // Initialize the cron-based job scheduler (replaces raw setInterval)
+  if (env.ENABLE_CRON_JOBS) {
+    JobScheduler.initialize();
+    console.log('[Scheduler] Cron-based job scheduler initialized');
+  } else {
+    console.log('[Scheduler] Cron jobs DISABLED via ENABLE_CRON_JOBS=false');
+  }
 
   // Start self-pinging keep-alive mechanism to prevent Render Free Tier spin-down
   const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;

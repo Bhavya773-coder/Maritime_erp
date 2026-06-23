@@ -46,7 +46,7 @@ export class BotService {
       },
     });
 
-    // 2. Try LLM translation if configured
+    // 2. Process via LLM agent loop
     try {
       const translation = await LlmService.translateMessage(
         messageText,
@@ -55,246 +55,29 @@ export class BotService {
         sender.role
       );
 
-      if (!translation.isERPRelated) {
-        return {
-          status: 'failed',
-          message: 'I am an ERP assistant and can only help with ERP tasks like scheduling, vessel updates, and staff queries. Please ask an office-related question.',
-        };
-      }
-
-      if (translation.directResponse || (translation.dbOperations && translation.dbOperations.length > 0)) {
-        // Execute database operations if requested by AI
-        let notifications: any[] = [];
-        if (translation.dbOperations && translation.dbOperations.length > 0) {
-          const opResult = await LlmService.executeDbOperations(
-            translation.dbOperations,
-            sender.id,
-            sender.name
-          );
-          notifications = opResult.notifications;
-        }
-
-        return {
-          status: 'success',
-          message: translation.directResponse || "I have processed your request.",
-          data: {
-            notifications,
-          },
-        };
-      }
-    } catch (err) {
-      console.error('[BotService] Error during LLM translation, falling back to legacy command parser:', err);
-    }
-
-    // 3. Fallback: Parse command using legacy Regex parser (if LLM offline/not configured)
-    const parsed = BotParser.parse(messageText);
-
-    // 4. Resolve assignee
-    if (!parsed.assigneeName) {
-      const command = await prisma.botCommand.create({
-        data: {
-          botMessageId: incomingMessage.id,
-          intent: parsed.intent,
-          confidence: 0.5,
-          parsedJson: parsed as any,
-          status: 'NEEDS_CONFIRMATION',
-        },
+      // Update incoming message status to EXECUTED
+      const updatedMessage = await prisma.botMessage.update({
+        where: { id: incomingMessage.id },
+        data: { status: 'EXECUTED' },
       });
 
       return {
-        status: 'NEEDS_CONFIRMATION',
-        message: 'No assignee could be extracted from command. Please specify an assignee.',
-        command,
-        options: [],
-      };
-    }
-
-    const candidates = await BotService.resolveAssignee(parsed.assigneeName);
-
-    // 5. Resolve flow outcomes
-    // Case A: No matches
-    if (candidates.length === 0) {
-      const command = await prisma.botCommand.create({
+        status: translation.status || 'success',
+        message: translation.directResponse || "I have processed your request.",
+        options: translation.options || [],
         data: {
-          botMessageId: incomingMessage.id,
-          intent: parsed.intent,
-          confidence: 0.0,
-          parsedJson: parsed as any,
-          status: 'NEEDS_CONFIRMATION',
+          task: translation.task || null,
+          command: updatedMessage,
+          notifications: translation.notifications || [],
         },
-      });
-
+      };
+    } catch (err: any) {
+      console.error('[BotService] Error in LLM agent loop:', err);
       return {
-        status: 'NEEDS_CONFIRMATION',
-        message: `Could not resolve assignee "${parsed.assigneeName}". No active user or department matched.`,
-        command,
-        options: [],
+        status: 'failed',
+        message: `Error processing request: ${err.message}`,
       };
     }
-
-    // Case B: Multiple matches
-    if (candidates.length > 1) {
-      const command = await prisma.botCommand.create({
-        data: {
-          botMessageId: incomingMessage.id,
-          intent: parsed.intent,
-          confidence: 0.5,
-          parsedJson: parsed as any,
-          status: 'NEEDS_CONFIRMATION',
-        },
-      });
-
-      return {
-        status: 'NEEDS_CONFIRMATION',
-        message: `Multiple matches found for "${parsed.assigneeName}". Please select the correct assignee.`,
-        command,
-        options: candidates.map(c => ({ id: c.id, name: c.name, department: c.department })),
-      };
-    }
-
-    // Case C: Exactly one match -> execute
-    const assignee = candidates[0];
-    const dueDate = parsed.dueDate || new Date(Date.now() + 24 * 60 * 60 * 1000); // Default to tomorrow if not found
-
-    // Create task
-    const task = await prisma.task.create({
-      data: {
-        title: parsed.taskTitle,
-        description: `Created via bot command. Original text: "${messageText}"`,
-        taskType: 'ASSIGNED',
-        createdById: sender.id,
-        assignedToId: assignee.id,
-        dueDate,
-        priority: parsed.priority,
-        status: 'PENDING',
-      },
-      include: {
-        creator: { select: { id: true, name: true, email: true, role: true } },
-        assignee: { select: { id: true, name: true, email: true, role: true } },
-      },
-    });
-
-    // Create initial task delegation log
-    await prisma.taskDelegationLog.create({
-      data: {
-        taskId: task.id,
-        fromUserId: sender.id,
-        toUserId: assignee.id,
-        note: 'Initial assignment via bot command',
-      },
-    });
-
-    // Audit log: Bot task created
-    await prisma.auditLog.create({
-      data: {
-        userId: sender.id,
-        action: 'BOT_TASK_CREATED',
-        details: `Task "${task.title}" (ID: ${task.id}) created via bot command for assignee ${assignee.name}.`,
-      },
-    });
-
-    // Create BotCommand record
-    const command = await prisma.botCommand.create({
-      data: {
-        botMessageId: incomingMessage.id,
-        intent: parsed.intent,
-        confidence: 1.0,
-        parsedJson: parsed as any,
-        linkedTaskId: task.id,
-        status: 'EXECUTED',
-      },
-    });
-
-    // Calculate intelligent reminder time
-    const nextReminderAt = calculateNextReminderAt(parsed.dueDate);
-
-    // Create BotReminder
-    const reminder = await prisma.botReminder.create({
-      data: {
-        taskId: task.id,
-        assignedToId: assignee.id,
-        reminderType: 'TASK_PENDING',
-        frequencyHours: 24,
-        nextReminderAt,
-        status: 'ACTIVE',
-      },
-    });
-
-    // Audit log: Bot reminder created
-    await prisma.auditLog.create({
-      data: {
-        userId: sender.id,
-        action: 'BOT_REMINDER_CREATED',
-        details: `Reminder (ID: ${reminder.id}) created for task "${task.title}" to run at ${nextReminderAt.toISOString()}.`,
-      },
-    });
-
-    // Create outgoing bot messages and DISPATCH them via WhatsApp
-    let assigneeText = `New task assigned to you: "${task.title}". Priority: ${task.priority}. Due: ${task.dueDate ? task.dueDate.toISOString() : 'No due date'}.`;
-    let senderText = `Task created: "${task.title}" has been assigned to ${assignee.name}.`;
-
-    let toPhoneAssignee: string | null = null;
-    let toPhoneSender: string | null = fromPhone;
-    const dispatchedMessages: any[] = [];
-
-    if (channel === BotChannel.WHATSAPP) {
-      assigneeText = `New task from ${sender.name}: ${task.title}. Reply UPDATE, DONE, or DELEGATE.`;
-      senderText = `Task created and sent to ${assignee.name}. Task: ${task.title}`;
-
-      const assigneeContact = await prisma.userContact.findFirst({
-        where: { userId: assignee.id, channel: BotChannel.WHATSAPP }
-      });
-      if (assigneeContact && assigneeContact.phoneNumber) {
-        toPhoneAssignee = assigneeContact.phoneNumber;
-        // DISPATCH to assignee — uses template if available (bypasses 24h window)
-        const assigneeMsg = await BotNotificationService.sendTaskAssignment(
-          assignee.id,
-          toPhoneAssignee,
-          sender.name,
-          task.title,
-          task.id
-        );
-        dispatchedMessages.push(assigneeMsg);
-      } else {
-        console.warn(`[BotService] No WhatsApp contact found for assignee ${assignee.name}. Task notification skipped.`);
-      }
-
-      // DISPATCH sender acknowledgement
-      if (toPhoneSender) {
-        const senderMsg = await BotNotificationService.sendTextNotification(
-          sender.id,
-          toPhoneSender,
-          senderText
-        );
-        dispatchedMessages.push(senderMsg);
-      }
-    }
-
-    const notifications = [
-      {
-        toUserId: assignee.id,
-        toPhone: toPhoneAssignee,
-        rawText: assigneeText,
-        messageType: 'INTERACTIVE_BUTTON',
-        taskId: task.id
-      },
-      {
-        toUserId: sender.id,
-        toPhone: toPhoneSender,
-        rawText: senderText,
-        messageType: 'TEXT'
-      }
-    ];
-
-    return {
-      status: 'success',
-      data: {
-        command,
-        task,
-        notifications,
-        dispatchedMessages,
-      },
-    };
   }
 
   /**

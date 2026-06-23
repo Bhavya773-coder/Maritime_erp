@@ -24,7 +24,6 @@ const validateVesselId = (req, res, next) => {
 router.use(auth_1.requireAuth);
 // Document endpoints — all authenticated roles
 router.get('/documents/search', vessels_documents_controller_1.searchVesselDocuments);
-router.get('/documents/:docId/download', vessels_documents_controller_1.downloadVesselDocument);
 router.get('/:id/documents', validateVesselId, vessels_documents_controller_1.getVesselDocuments);
 // Export-ready snapshot MUST be registered before /:id to avoid route collision
 router.get('/export/snapshot', vessels_controller_1.getExportSnapshot);
