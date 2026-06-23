@@ -1,6 +1,7 @@
 import { env } from '../../config/env';
 import prisma from '../../config/db';
 import { BotStaffService } from './bot.staff-service';
+import { calculateNextReminderAt } from './bot.utils';
 
 export interface LlmTranslation {
   isERPRelated: boolean;
@@ -92,6 +93,15 @@ export class LlmService {
               }
             });
 
+            await prisma.taskDelegationLog.create({
+              data: {
+                taskId: task.id,
+                fromUserId: senderUserId,
+                toUserId: assignee.id,
+                note: 'Initial assignment via AI agent',
+              },
+            });
+
             auditLogs.push(`Created task "${task.title}" (ID: ${task.id}) assigned to ${assignee.name}, due ${parsedDueDate.toISOString().split('T')[0]}`);
 
             // Auto-detect vessel mentions and log activity
@@ -112,7 +122,7 @@ export class LlmService {
             }
 
             // Create BotReminder
-            const nextReminderAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+            const nextReminderAt = calculateNextReminderAt(parsedDueDate);
             await prisma.botReminder.create({
               data: {
                 taskId: task.id,

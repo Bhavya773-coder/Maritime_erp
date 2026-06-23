@@ -100,7 +100,7 @@ model Task {
   creator      User                @relation("TaskCreator", fields: [createdById], references: [id])
   assignedToId String?             @map("assigned_to_id") @db.ObjectId
   assignee     User?               @relation("TaskAssignee", fields: [assignedToId], references: [id])
-  dueDate      DateTime            @map("due_date")
+  dueDate      DateTime?           @map("due_date")
   priority     Priority
   status       TaskStatus          @default(PENDING)
   completedAt  DateTime?           @map("completed_at")

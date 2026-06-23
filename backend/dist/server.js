@@ -8,6 +8,7 @@ const env_1 = require("./config/env");
 const https_1 = __importDefault(require("https"));
 const http_1 = __importDefault(require("http"));
 const bot_reminder_service_1 = require("./modules/bot/bot.reminder-service");
+const bot_personal_reminder_service_1 = require("./modules/bot/bot.personal-reminder-service");
 const server = app_1.default.listen(env_1.env.PORT, () => {
     console.log(`🚀 Maritime ERP Server listening on port ${env_1.env.PORT} in ${env_1.env.NODE_ENV} mode`);
     // Run due reminders check immediately on server startup after a 5 second delay
@@ -21,6 +22,17 @@ const server = app_1.default.listen(env_1.env.PORT, () => {
             console.error('[Scheduler] Error running initial reminders check:', err);
         }
     }, 5000);
+    // Run due personal reminders check immediately on server startup after a 7 second delay
+    setTimeout(async () => {
+        try {
+            console.log('[Scheduler] Running initial due personal reminders check...');
+            const stats = await bot_personal_reminder_service_1.BotPersonalReminderService.processDuePersonalReminders();
+            console.log('[Scheduler] Initial personal reminders check finished:', stats);
+        }
+        catch (err) {
+            console.error('[Scheduler] Error running initial personal reminders check:', err);
+        }
+    }, 7000);
     // Set up repeating due reminders check every 5 minutes
     setInterval(async () => {
         try {
@@ -32,6 +44,17 @@ const server = app_1.default.listen(env_1.env.PORT, () => {
             console.error('[Scheduler] Error running reminders check:', err);
         }
     }, 5 * 60 * 1000); // 5 minutes
+    // Set up repeating due personal reminders check every 1 minute
+    setInterval(async () => {
+        try {
+            console.log('[Scheduler] Running due personal reminders check...');
+            const stats = await bot_personal_reminder_service_1.BotPersonalReminderService.processDuePersonalReminders();
+            console.log('[Scheduler] Personal reminders check finished:', stats);
+        }
+        catch (err) {
+            console.error('[Scheduler] Error running personal reminders check:', err);
+        }
+    }, 1 * 60 * 1000); // 1 minute
     // Start self-pinging keep-alive mechanism to prevent Render Free Tier spin-down
     const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
     if (RENDER_EXTERNAL_URL) {

@@ -39,7 +39,8 @@ export const testWebhook = async (req: AuthRequest, res: Response, next: NextFun
       throw new AppError('fromPhone and message are required fields', 400);
     }
 
-    const result = await WhatsAppService.processIncomingMessage(fromPhone, message, 'simulated-msg-id');
+    const uniqueId = `simulated-msg-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    const result = await WhatsAppService.processIncomingMessage(fromPhone, message, uniqueId);
     
     const statusCode = result.status === 'success' ? 201 : 200;
     return res.status(statusCode).json(result);

@@ -59,7 +59,7 @@ export class BotReplyService {
       activeTasks.forEach((t, i) => {
         const nextRem = t.botReminders[0]?.nextReminderAt;
         const nextRemStr = nextRem ? nextRem.toISOString() : 'None';
-        replyText += `${i + 1}. ${t.title}\n   Status: ${t.status}\n   Due: ${t.dueDate.toISOString()}\n   Next Reminder: ${nextRemStr}\n   ID: ${t.id}\n`;
+        replyText += `${i + 1}. ${t.title}\n   Status: ${t.status}\n   Due: ${t.dueDate ? t.dueDate.toISOString() : 'No due date'}\n   Next Reminder: ${nextRemStr}\n   ID: ${t.id}\n`;
       });
 
       await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, replyText);

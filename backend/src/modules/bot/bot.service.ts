@@ -4,6 +4,7 @@ import { Role, BotChannel, BotMessageDirection, BotCommandStatus, BotReminderSta
 import { BotParser } from './bot.parser';
 import { LlmService } from './llm.service';
 import { BotNotificationService } from './bot.notification-service';
+import { calculateNextReminderAt } from './bot.utils';
 
 export class BotService {
   /**
@@ -205,18 +206,7 @@ export class BotService {
     });
 
     // Calculate intelligent reminder time
-    const now = new Date();
-    let nextReminderAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    if (parsed.dueDate) {
-      const dueTime = parsed.dueDate.getTime();
-      const reminderTime = dueTime - 24 * 60 * 60 * 1000;
-      if (reminderTime > now.getTime()) {
-        nextReminderAt = new Date(reminderTime);
-      } else {
-        // If due date is within 24 hours, remind at the due date itself
-        nextReminderAt = parsed.dueDate;
-      }
-    }
+    const nextReminderAt = calculateNextReminderAt(parsed.dueDate);
 
     // Create BotReminder
     const reminder = await prisma.botReminder.create({
@@ -240,7 +230,7 @@ export class BotService {
     });
 
     // Create outgoing bot messages and DISPATCH them via WhatsApp
-    let assigneeText = `New task assigned to you: "${task.title}". Priority: ${task.priority}. Due: ${task.dueDate.toISOString()}.`;
+    let assigneeText = `New task assigned to you: "${task.title}". Priority: ${task.priority}. Due: ${task.dueDate ? task.dueDate.toISOString() : 'No due date'}.`;
     let senderText = `Task created: "${task.title}" has been assigned to ${assignee.name}.`;
 
     let toPhoneAssignee: string | null = null;

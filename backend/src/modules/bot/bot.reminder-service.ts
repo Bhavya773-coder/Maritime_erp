@@ -54,7 +54,7 @@ export class BotReminderService {
       }
 
       const task = reminder.task;
-      const isOverdue = task.dueDate && new Date(task.dueDate) < now;
+      const isOverdue = task.dueDate ? new Date(task.dueDate) < now : false;
       const dueDateStr = task.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : 'No due date';
       const lastComment = task.comments[0]?.content || null;
 

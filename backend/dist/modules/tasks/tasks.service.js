@@ -40,6 +40,8 @@ exports.TasksService = void 0;
 const db_1 = __importDefault(require("../../config/db"));
 const error_1 = require("../../middleware/error");
 const client_1 = require("@prisma/client");
+const bot_notification_service_1 = require("../bot/bot.notification-service");
+const bot_utils_1 = require("../bot/bot.utils");
 class TasksService {
     /**
      * Helper to check if a user is in the delegation chain of a task
@@ -77,8 +79,8 @@ class TasksService {
         };
         // Apply role-based visibility filter
         if (user.role !== client_1.Role.OWNER) {
-            if (user.role === client_1.Role.MANAGER) {
-                // MANAGER sees tasks created by them or assigned to them
+            if (user.role === client_1.Role.MANAGER || user.role === client_1.Role.FLEET_MANAGER) {
+                // MANAGER or FLEET_MANAGER sees tasks created by them or assigned to them
                 whereClause.OR = [
                     { createdById: user.id },
                     { assignedToId: user.id },
@@ -99,19 +101,22 @@ class TasksService {
         if (filters.type) {
             whereClause.taskType = filters.type;
         }
-        if (filters.status) {
-            whereClause.status = filters.status;
-        }
         if (filters.priority) {
             whereClause.priority = filters.priority;
         }
-        if (filters.overdue !== undefined) {
-            if (filters.overdue) {
-                whereClause.status = client_1.TaskStatus.OVERDUE;
-            }
-            else {
-                whereClause.status = { not: client_1.TaskStatus.OVERDUE };
-            }
+        if (filters.status && filters.overdue !== undefined) {
+            whereClause.AND = [
+                { status: filters.status },
+                filters.overdue
+                    ? { status: client_1.TaskStatus.OVERDUE }
+                    : { status: { not: client_1.TaskStatus.OVERDUE } },
+            ];
+        }
+        else if (filters.status) {
+            whereClause.status = filters.status;
+        }
+        else if (filters.overdue !== undefined) {
+            whereClause.status = filters.overdue ? client_1.TaskStatus.OVERDUE : { not: client_1.TaskStatus.OVERDUE };
         }
         return db_1.default.task.findMany({
             where: whereClause,
@@ -183,8 +188,8 @@ class TasksService {
             if (!data.dueDate) {
                 throw new error_1.AppError('Due date is required for assigned tasks.', 400);
             }
-            // Check permission: only OWNER or MANAGER can assign
-            if (creator.role !== client_1.Role.OWNER && creator.role !== client_1.Role.MANAGER) {
+            // Check permission: only OWNER, MANAGER or FLEET_MANAGER can assign
+            if (creator.role !== client_1.Role.OWNER && creator.role !== client_1.Role.MANAGER && creator.role !== client_1.Role.FLEET_MANAGER) {
                 throw new error_1.AppError('Only owners or managers can create assigned tasks.', 403);
             }
             // Check if assignee is active
@@ -206,7 +211,7 @@ class TasksService {
                 taskType: data.taskType,
                 createdById: creator.id,
                 assignedToId: data.assignedToId || null,
-                dueDate: data.dueDate ? data.dueDate : new Date(), // Default current date if personal omitted
+                dueDate: data.taskType === client_1.TaskType.PERSONAL ? null : data.dueDate,
                 priority: data.priority,
                 status: data.status,
             },
@@ -226,7 +231,7 @@ class TasksService {
                 },
             });
             // Create BotReminder
-            const nextReminderAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+            const nextReminderAt = (0, bot_utils_1.calculateNextReminderAt)(task.dueDate);
             await db_1.default.botReminder.create({
                 data: {
                     taskId: task.id,
@@ -237,15 +242,16 @@ class TasksService {
                     status: 'ACTIVE',
                 },
             });
-            // Send WhatsApp notification immediately
+            // Send WhatsApp notification to assignee using notification service (handles 24h window + templates)
             try {
                 const assigneeContact = await db_1.default.userContact.findFirst({
                     where: { userId: task.assignedToId, channel: 'WHATSAPP' },
                 });
-                if (assigneeContact) {
-                    const { WhatsAppService } = await Promise.resolve().then(() => __importStar(require('../bot/whatsapp.service')));
-                    const rawText = `New task from ${creator.name}: ${task.title}. Priority: ${task.priority}. Due: ${task.dueDate.toISOString().split('T')[0]}.`;
-                    await WhatsAppService.sendWhatsAppAndLog(task.assignedToId, assigneeContact.phoneNumber, rawText);
+                if (assigneeContact && assigneeContact.phoneNumber) {
+                    await bot_notification_service_1.BotNotificationService.sendTaskAssignment(task.assignedToId, assigneeContact.phoneNumber, creator.name, task.title, task.id);
+                }
+                else {
+                    console.warn(`[TasksService] No WhatsApp contact for assignee ${task.assignedToId}. Task notification skipped.`);
                 }
             }
             catch (err) {
@@ -323,7 +329,7 @@ class TasksService {
             const isHolder = task.assignedToId === user.id;
             const isCreator = task.createdById === user.id;
             const isOwner = user.role === client_1.Role.OWNER;
-            const isManager = user.role === client_1.Role.MANAGER;
+            const isManager = user.role === client_1.Role.MANAGER || user.role === client_1.Role.FLEET_MANAGER;
             if (!isHolder && !isCreator && !isOwner && !isManager) {
                 throw new error_1.AppError('You do not have permission to update this task\'s status.', 403);
             }
@@ -431,24 +437,25 @@ class TasksService {
             where: { taskId: id, status: 'ACTIVE' },
             data: { assignedToId: targetUserId },
         });
-        // Send WhatsApp notification to new assignee and acknowledgement to creator
+        // Send WhatsApp notification to new assignee and acknowledgement to creator using notification service
         try {
-            const { WhatsAppService } = await Promise.resolve().then(() => __importStar(require('../bot/whatsapp.service')));
-            // 1. Notify new assignee
+            // 1. Notify new assignee — uses template if available (bypasses 24h window)
             const assigneeContact = await db_1.default.userContact.findFirst({
                 where: { userId: targetUserId, channel: 'WHATSAPP' }
             });
-            if (assigneeContact) {
-                const assigneeText = `New task delegated to you by ${user.name}: ${task.title}. Note: ${note || 'Delegated'}`;
-                await WhatsAppService.sendWhatsAppAndLog(targetUserId, assigneeContact.phoneNumber, assigneeText);
+            if (assigneeContact && assigneeContact.phoneNumber) {
+                await bot_notification_service_1.BotNotificationService.sendTaskDelegation(targetUserId, assigneeContact.phoneNumber, user.name, task.title, note || 'Delegated', task.id);
             }
-            // 2. Notify creator
+            else {
+                console.warn(`[TasksService] No WhatsApp contact for new assignee ${targetUser.name}. Delegation notification skipped.`);
+            }
+            // 2. Notify creator (acknowledgement)
             const creatorContact = await db_1.default.userContact.findFirst({
                 where: { userId: task.createdById, channel: 'WHATSAPP' }
             });
-            if (creatorContact && task.createdById !== user.id) {
+            if (creatorContact && creatorContact.phoneNumber && task.createdById !== user.id) {
                 const creatorText = `${user.name} delegated task "${task.title}" to ${targetUser.name}. Note: ${note || 'Delegated'}`;
-                await WhatsAppService.sendWhatsAppAndLog(task.createdById, creatorContact.phoneNumber, creatorText);
+                await bot_notification_service_1.BotNotificationService.sendTextNotification(task.createdById, creatorContact.phoneNumber, creatorText);
             }
         }
         catch (err) {
@@ -575,6 +582,7 @@ class TasksService {
         const nonCompleted = await db_1.default.task.findMany({
             where: {
                 deletedAt: null,
+                taskType: client_1.TaskType.ASSIGNED,
                 status: { notIn: [client_1.TaskStatus.COMPLETED, client_1.TaskStatus.OVERDUE] },
                 dueDate: { lt: today },
             },
@@ -587,6 +595,7 @@ class TasksService {
         const result = await db_1.default.task.updateMany({
             where: {
                 deletedAt: null,
+                taskType: client_1.TaskType.ASSIGNED,
                 status: { notIn: [client_1.TaskStatus.COMPLETED, client_1.TaskStatus.OVERDUE] },
                 dueDate: { lt: today },
             },

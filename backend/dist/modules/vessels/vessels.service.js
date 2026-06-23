@@ -106,7 +106,7 @@ class VesselsService {
         if (!creator) {
             throw new error_1.AppError('Creator user not found.', 404);
         }
-        const vesselId = (0, crypto_1.randomUUID)();
+        const vesselId = (0, crypto_1.randomBytes)(12).toString('hex');
         // Execute in a transaction
         const [vessel] = await db_1.default.$transaction([
             // 1. Create vessel

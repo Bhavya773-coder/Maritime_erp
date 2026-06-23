@@ -80,6 +80,7 @@ async function run() {
       where: { assignedToId: hardik.id, status: 'ACTIVE' },
       data: { status: 'COMPLETED' }
     });
+    await prisma.userContact.deleteMany({ where: { userId: hardik.id } });
   }
   const gunvant = await prisma.user.findFirst({ where: { email: 'gunvant@apil.local' } });
   if (gunvant) {
@@ -91,6 +92,15 @@ async function run() {
       where: { assignedToId: gunvant.id, status: 'ACTIVE' },
       data: { status: 'COMPLETED' }
     });
+    await prisma.userContact.deleteMany({ where: { userId: gunvant.id } });
+  }
+  const jaman = await prisma.user.findFirst({ where: { email: 'jaman@apil.local' } });
+  if (jaman) {
+    await prisma.userContact.deleteMany({ where: { userId: jaman.id } });
+  }
+  const owner = await prisma.user.findFirst({ where: { email: 'owner@apil.local' } });
+  if (owner) {
+    await prisma.userContact.deleteMany({ where: { userId: owner.id } });
   }
 }
 run().catch(console.error).finally(() => prisma.$disconnect());

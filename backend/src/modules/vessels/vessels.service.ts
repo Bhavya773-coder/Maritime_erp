@@ -1,6 +1,6 @@
 import { Role, VesselType, VesselStatus } from '@prisma/client';
 import prisma from '../../config/db';
-import { randomUUID } from 'crypto';
+import { randomBytes } from 'crypto';
 import { AppError } from '../../middleware/error';
 
 interface CreateVesselPayload {
@@ -135,7 +135,7 @@ export class VesselsService {
       throw new AppError('Creator user not found.', 404);
     }
 
-    const vesselId = randomUUID();
+    const vesselId = randomBytes(12).toString('hex');
 
     // Execute in a transaction
     const [vessel] = await prisma.$transaction([

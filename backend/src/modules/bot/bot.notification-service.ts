@@ -45,20 +45,34 @@ export class BotNotificationService {
 
     // Template messages bypass the 24h window and are always deliverable
     if (env.WHATSAPP_TEMPLATE_NAME) {
-      // sendWhatsAppAndLog will auto-detect the template pattern and use the template
-      const templateMsg = await WhatsAppService.sendWhatsAppAndLog(toUserId, cleanPhone, messageText);
+      const isSimulated = !env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID;
+      let sendResult = await WhatsAppService.sendWhatsAppTemplate(
+        cleanPhone,
+        env.WHATSAPP_TEMPLATE_NAME,
+        env.WHATSAPP_TEMPLATE_LANG || 'en',
+        [senderName, taskTitle]
+      );
 
-      // If user is within conversation window, also send interactive buttons for convenience
-      const inWindow = await this.isWithinConversationWindow(toUserId);
-      if (inWindow) {
-        try {
-          await WhatsAppService.sendWhatsAppTaskButtonsAndLog(toUserId, cleanPhone, messageText, taskId);
-        } catch (btnErr) {
-          console.warn('[BotNotificationService] Buttons follow-up failed (non-critical):', btnErr);
-        }
+      let actualStatus = isSimulated ? 'SIMULATED' : 'SENT';
+      if (sendResult?.status === 'FAILED_SEND_FALLBACK_SIMULATED') {
+        console.warn(`[BotNotificationService] Template failed for ${cleanPhone}. Falling back to plain text.`);
+        sendResult = await WhatsAppService.sendWhatsAppText(cleanPhone, messageText);
+        actualStatus = sendResult?.status === 'SIMULATED' ? 'SIMULATED' : 'SENT_FALLBACK_TEXT';
+      } else if (!isSimulated && !sendResult?.messages?.[0]?.id) {
+        actualStatus = 'FAILED';
       }
 
-      return templateMsg;
+      return await prisma.botMessage.create({
+        data: {
+          direction: 'OUTGOING',
+          channel: BotChannel.WHATSAPP,
+          toUserId,
+          toPhone: cleanPhone,
+          rawText: messageText,
+          messageType: 'TEMPLATE',
+          status: actualStatus,
+        },
+      });
     }
 
     // No template configured — check conversation window
@@ -90,18 +104,34 @@ export class BotNotificationService {
     const messageText = `New task delegated to you by ${senderName}: ${taskTitle}. Note: ${note || 'Delegated'}`;
 
     if (env.WHATSAPP_TEMPLATE_NAME) {
-      const templateMsg = await WhatsAppService.sendWhatsAppAndLog(toUserId, cleanPhone, messageText);
+      const isSimulated = !env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID;
+      let sendResult = await WhatsAppService.sendWhatsAppTemplate(
+        cleanPhone,
+        env.WHATSAPP_TEMPLATE_NAME,
+        env.WHATSAPP_TEMPLATE_LANG || 'en',
+        [`${senderName} (Delegated)`, `${taskTitle} (Note: ${note || 'Delegated'})`]
+      );
 
-      const inWindow = await this.isWithinConversationWindow(toUserId);
-      if (inWindow) {
-        try {
-          await WhatsAppService.sendWhatsAppTaskButtonsAndLog(toUserId, cleanPhone, messageText, taskId);
-        } catch (btnErr) {
-          console.warn('[BotNotificationService] Buttons follow-up failed (non-critical):', btnErr);
-        }
+      let actualStatus = isSimulated ? 'SIMULATED' : 'SENT';
+      if (sendResult?.status === 'FAILED_SEND_FALLBACK_SIMULATED') {
+        console.warn(`[BotNotificationService] Template failed for ${cleanPhone}. Falling back to plain text.`);
+        sendResult = await WhatsAppService.sendWhatsAppText(cleanPhone, messageText);
+        actualStatus = sendResult?.status === 'SIMULATED' ? 'SIMULATED' : 'SENT_FALLBACK_TEXT';
+      } else if (!isSimulated && !sendResult?.messages?.[0]?.id) {
+        actualStatus = 'FAILED';
       }
 
-      return templateMsg;
+      return await prisma.botMessage.create({
+        data: {
+          direction: 'OUTGOING',
+          channel: BotChannel.WHATSAPP,
+          toUserId,
+          toPhone: cleanPhone,
+          rawText: messageText,
+          messageType: 'TEMPLATE',
+          status: actualStatus,
+        },
+      });
     }
 
     const inWindow = await this.isWithinConversationWindow(toUserId);

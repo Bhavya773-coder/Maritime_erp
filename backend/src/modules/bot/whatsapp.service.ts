@@ -4,6 +4,9 @@ import { BotService } from './bot.service';
 import { BotChannel } from '@prisma/client';
 import { BotReplyService } from './bot.reply-service';
 import { LlmService } from './llm.service';
+import { BotReplyParser } from './bot.reply-parser';
+import { BotFleetParser } from './bot.fleet-parser';
+import { BotFleetService } from './bot.fleet-service';
 
 export class WhatsAppService {
   /**
@@ -187,54 +190,7 @@ export class WhatsAppService {
     let sendResult: any = null;
     let actualStatus: string = isSimulated ? 'SIMULATED' : 'SENT';
 
-    // Check if the outgoing message is a task assignment or delegation, and if we should use templates
-    if (env.WHATSAPP_TEMPLATE_NAME) {
-      // 1. Check if it's a direct task assignment
-      const taskAssignMatch = messageText.match(/^New task from (.+?): (.+?)\. Reply UPDATE, DONE, or DELEGATE\.$/);
-      if (taskAssignMatch) {
-        const senderName = taskAssignMatch[1];
-        const taskTitle = taskAssignMatch[2];
-        type = 'TEMPLATE';
-        sendResult = await this.sendWhatsAppTemplate(
-          cleanPhone,
-          env.WHATSAPP_TEMPLATE_NAME,
-          env.WHATSAPP_TEMPLATE_LANG || 'en',
-          [senderName, taskTitle]
-        );
-
-        // If template failed, fall back to plain text
-        if (sendResult?.status === 'FAILED_SEND_FALLBACK_SIMULATED') {
-          console.warn(`[WhatsAppService] Template failed for ${cleanPhone}. Falling back to plain text.`);
-          sendResult = await this.sendWhatsAppText(cleanPhone, messageText);
-          actualStatus = sendResult?.status === 'SIMULATED' ? 'SIMULATED' : 'SENT_FALLBACK_TEXT';
-        }
-      } else {
-        // 2. Check if it's a task delegation
-        const taskDelegateMatch = messageText.match(/^New task delegated to you by (.+?): (.+?)\. Note: (.+)$/);
-        if (taskDelegateMatch) {
-          const senderName = `${taskDelegateMatch[1]} (Delegated)`;
-          const taskTitle = `${taskDelegateMatch[2]} (Note: ${taskDelegateMatch[3]})`;
-          type = 'TEMPLATE';
-          sendResult = await this.sendWhatsAppTemplate(
-            cleanPhone,
-            env.WHATSAPP_TEMPLATE_NAME,
-            env.WHATSAPP_TEMPLATE_LANG || 'en',
-            [senderName, taskTitle]
-          );
-
-          // If template failed, fall back to plain text
-          if (sendResult?.status === 'FAILED_SEND_FALLBACK_SIMULATED') {
-            console.warn(`[WhatsAppService] Template failed for ${cleanPhone}. Falling back to plain text.`);
-            sendResult = await this.sendWhatsAppText(cleanPhone, messageText);
-            actualStatus = sendResult?.status === 'SIMULATED' ? 'SIMULATED' : 'SENT_FALLBACK_TEXT';
-          }
-        } else {
-          sendResult = await this.sendWhatsAppText(cleanPhone, messageText);
-        }
-      }
-    } else {
-      sendResult = await this.sendWhatsAppText(cleanPhone, messageText);
-    }
+    sendResult = await this.sendWhatsAppText(cleanPhone, messageText);
 
     // Log the actual status based on whether the API call succeeded
     if (sendResult?.status === 'FAILED_SEND_FALLBACK_SIMULATED') {
@@ -750,6 +706,48 @@ export class WhatsAppService {
       }
     }
 
+    // C.5 Parse and Execute Direct Reply Commands (e.g. UPDATE, DONE, STATUS, HELP, DELEGATE)
+    const replyCommand = BotReplyParser.parse(textBody);
+    if (replyCommand) {
+      // Log incoming message
+      await prisma.botMessage.create({
+        data: {
+          direction: 'INCOMING',
+          channel: BotChannel.WHATSAPP,
+          fromUserId: senderUser.id,
+          fromPhone: cleanPhone,
+          rawText: originalTextBody,
+          messageType: 'TEXT',
+          status: 'RECEIVED',
+          providerMessageId,
+        },
+      });
+
+      return await BotReplyService.executeReplyCommand(senderUser, replyCommand, cleanPhone, providerMessageId);
+    }
+
+    // C.6 Parse and Execute Fleet Query Commands (e.g. Where is ARCADIA 1, Show all barges)
+    const fleetQuery = BotFleetParser.parse(textBody);
+    if (fleetQuery) {
+      // Log incoming message
+      await prisma.botMessage.create({
+        data: {
+          direction: 'INCOMING',
+          channel: BotChannel.WHATSAPP,
+          fromUserId: senderUser.id,
+          fromPhone: cleanPhone,
+          rawText: originalTextBody,
+          messageType: 'TEXT',
+          status: 'RECEIVED',
+          providerMessageId,
+        },
+      });
+
+      const replyText = await BotFleetService.executeQuery(fleetQuery, senderUser.id);
+      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+      return { status: 'success', message: replyText, outgoing: [outgoing] };
+    }
+
     // D. Route ALL messages through the LLM
     // Only "menu" gets a special fast-path for WhatsApp interactive buttons
     const cleanMsg = textBody.trim().toLowerCase();
@@ -826,6 +824,20 @@ export class WhatsAppService {
         );
         notifications = opResult.notifications;
         taskCreatedByLLM = translation.dbOperations.some((op: any) => op.action === 'createTask');
+      }
+
+      // FALLBACK: If LLM did not perform any db operations and did not return a direct response
+      if (!translation.directResponse && (!translation.dbOperations || translation.dbOperations.length === 0)) {
+        console.log(`[WhatsAppService] LLM did not return directResponse or dbOperations. Falling back to legacy parser.`);
+        return await BotService.processCommand(
+          textBody,
+          senderUser,
+          {
+            channel: BotChannel.WHATSAPP,
+            fromPhone: cleanPhone,
+            providerMessageId,
+          }
+        );
       }
 
       // Safety net: if LLM claimed to create a task but didn't include dbOperations,

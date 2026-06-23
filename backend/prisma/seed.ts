@@ -85,6 +85,14 @@ async function main() {
       phone: '918140653663',
     },
     {
+      name: 'Ramesh Mota',
+      email: 'ramesh@apil.local',
+      passwordHash,
+      role: Role.FLEET_MANAGER,
+      department: 'Fleet',
+      phone: '919925203303',
+    },
+    {
       name: 'Gunvant',
       email: 'gunvant@apil.local',
       passwordHash,

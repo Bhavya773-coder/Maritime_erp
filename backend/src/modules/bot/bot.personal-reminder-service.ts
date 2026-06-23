@@ -51,21 +51,28 @@ export class BotPersonalReminderService {
             reminder.description || undefined
           );
           sent++;
+          
+          await prisma.personalReminder.update({
+            where: { id: reminder.id },
+            data: { status: 'COMPLETED' },
+          });
+          completed++;
         } catch (err) {
           console.error(`[BotPersonalReminderService] Failed to send reminder to ${reminder.user.name}:`, err);
           skipped++;
+          await prisma.personalReminder.update({
+            where: { id: reminder.id },
+            data: { status: 'FAILED' },
+          });
         }
       } else {
         console.warn(`[BotPersonalReminderService] No WhatsApp contact for user ${reminder.user.name}. Skipping.`);
         skipped++;
+        await prisma.personalReminder.update({
+          where: { id: reminder.id },
+          data: { status: 'FAILED' },
+        });
       }
-
-      // Mark the reminder as completed after sending (or attempting to send)
-      await prisma.personalReminder.update({
-        where: { id: reminder.id },
-        data: { status: 'COMPLETED' },
-      });
-      completed++;
     }
 
     return { checked, sent, completed, skipped };

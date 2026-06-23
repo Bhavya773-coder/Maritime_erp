@@ -2,6 +2,7 @@ import prisma from '../../config/db';
 import { AppError } from '../../middleware/error';
 import { TaskType, Priority, TaskStatus, Role, User } from '@prisma/client';
 import { BotNotificationService } from '../bot/bot.notification-service';
+import { calculateNextReminderAt } from '../bot/bot.utils';
 
 export class TasksService {
   /**
@@ -50,8 +51,8 @@ export class TasksService {
 
     // Apply role-based visibility filter
     if (user.role !== Role.OWNER) {
-      if (user.role === Role.MANAGER) {
-        // MANAGER sees tasks created by them or assigned to them
+      if (user.role === Role.MANAGER || user.role === Role.FLEET_MANAGER) {
+        // MANAGER or FLEET_MANAGER sees tasks created by them or assigned to them
         whereClause.OR = [
           { createdById: user.id },
           { assignedToId: user.id },
@@ -72,18 +73,20 @@ export class TasksService {
     if (filters.type) {
       whereClause.taskType = filters.type;
     }
-    if (filters.status) {
-      whereClause.status = filters.status;
-    }
     if (filters.priority) {
       whereClause.priority = filters.priority;
     }
-    if (filters.overdue !== undefined) {
-      if (filters.overdue) {
-        whereClause.status = TaskStatus.OVERDUE;
-      } else {
-        whereClause.status = { not: TaskStatus.OVERDUE };
-      }
+    if (filters.status && filters.overdue !== undefined) {
+      whereClause.AND = [
+        { status: filters.status },
+        filters.overdue
+          ? { status: TaskStatus.OVERDUE }
+          : { status: { not: TaskStatus.OVERDUE } },
+      ];
+    } else if (filters.status) {
+      whereClause.status = filters.status;
+    } else if (filters.overdue !== undefined) {
+      whereClause.status = filters.overdue ? TaskStatus.OVERDUE : { not: TaskStatus.OVERDUE };
     }
 
     return prisma.task.findMany({
@@ -173,8 +176,8 @@ export class TasksService {
         throw new AppError('Due date is required for assigned tasks.', 400);
       }
 
-      // Check permission: only OWNER or MANAGER can assign
-      if (creator.role !== Role.OWNER && creator.role !== Role.MANAGER) {
+      // Check permission: only OWNER, MANAGER or FLEET_MANAGER can assign
+      if (creator.role !== Role.OWNER && creator.role !== Role.MANAGER && creator.role !== Role.FLEET_MANAGER) {
         throw new AppError('Only owners or managers can create assigned tasks.', 403);
       }
 
@@ -198,7 +201,7 @@ export class TasksService {
         taskType: data.taskType,
         createdById: creator.id,
         assignedToId: data.assignedToId || null,
-        dueDate: data.dueDate ? data.dueDate : new Date(), // Default current date if personal omitted
+        dueDate: data.taskType === TaskType.PERSONAL ? null : data.dueDate,
         priority: data.priority,
         status: data.status,
       },
@@ -220,7 +223,7 @@ export class TasksService {
       });
 
       // Create BotReminder
-      const nextReminderAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+      const nextReminderAt = calculateNextReminderAt(task.dueDate);
       await prisma.botReminder.create({
         data: {
           taskId: task.id,
@@ -332,7 +335,7 @@ export class TasksService {
       const isHolder = task.assignedToId === user.id;
       const isCreator = task.createdById === user.id;
       const isOwner = user.role === Role.OWNER;
-      const isManager = user.role === Role.MANAGER;
+      const isManager = user.role === Role.MANAGER || user.role === Role.FLEET_MANAGER;
 
       if (!isHolder && !isCreator && !isOwner && !isManager) {
         throw new AppError('You do not have permission to update this task\'s status.', 403);
@@ -639,6 +642,7 @@ export class TasksService {
     const nonCompleted = await prisma.task.findMany({
       where: {
         deletedAt: null,
+        taskType: TaskType.ASSIGNED,
         status: { notIn: [TaskStatus.COMPLETED, TaskStatus.OVERDUE] },
         dueDate: { lt: today },
       },
@@ -653,6 +657,7 @@ export class TasksService {
     const result = await prisma.task.updateMany({
       where: {
         deletedAt: null,
+        taskType: TaskType.ASSIGNED,
         status: { notIn: [TaskStatus.COMPLETED, TaskStatus.OVERDUE] },
         dueDate: { lt: today },
       },
