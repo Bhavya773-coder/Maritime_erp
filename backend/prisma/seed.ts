@@ -341,6 +341,53 @@ async function main() {
     });
   }
 
+  // Seed GA Plan document records
+  console.log('Seeding vessel documents...');
+
+  const gaDocMap = [
+    { key: 'ARCADIA ADINATH',   file: 'GA_ARCADIA ADINATH.pdf' },
+    { key: 'ARCADIA MAHAVIR',   file: 'GA_ARCADIA MAHAVIR.pdf' },
+    { key: 'ARCADIA MINICA',    file: 'GA_ARCADIA MINICA.pdf' },
+    { key: 'ARCADIA PARSHVA',   file: 'GA_ARCADIA PARSHVA.pdf' },
+    { key: 'ARCADIA SUMERU',    file: 'GA_ARCADIA SUMERU.pdf' },
+    { key: 'ARCADIA SUPARSHVA', file: 'GA_ARCADIA SUPARSHVA.pdf' },
+    { key: 'ARCADIA VARUN',     file: 'GA_ARCADIA VARUN.pdf' },
+    { key: 'ARCADIA ZARAH',     file: 'GA_ARCADIA ZARAH.pdf' },
+    { key: 'KB 23',             file: 'GA_KB 23.pdf' },
+    { key: 'KB 24',             file: 'GA_KB 24.pdf' },
+    { key: 'KB 25',             file: 'GA_KB 25.pdf' },
+    { key: 'KB 26',             file: 'GA_KB 26.pdf' },
+    { key: 'KB 28',             file: 'GA_KB 28.PDF' },
+    { key: 'ARCADIA 1',         file: 'GA_ARCADIA 1.pdf' },
+    { key: 'ARCADIA KRISHNA',   file: 'GA_ARCADIA KRISHNA.pdf' },
+    { key: 'ARCADIA VIJAY',     file: 'GA_ARCADIA VIJAY.pdf' },
+    { key: 'ARCADIA VISHAKHA',  file: 'GA_ARCADIA VISHAKHA.pdf' },
+  ];
+
+  for (const entry of gaDocMap) {
+    const vessel = await prisma.vessel.findFirst({
+      where: { name: { contains: entry.key, mode: 'insensitive' } },
+    });
+    if (!vessel) {
+      console.warn(`  [DocSeed] Vessel not found for key: ${entry.key} — skipping`);
+      continue;
+    }
+    // Delete existing GA_PLAN doc for this vessel before re-seeding
+    await prisma.vesselDocument.deleteMany({
+      where: { vesselId: vessel.id, docType: 'GA_PLAN' },
+    });
+    await prisma.vesselDocument.create({
+      data: {
+        vesselId: vessel.id,
+        docType: 'GA_PLAN',
+        fileName: entry.file,
+        filePath: `documents/ga_plans/${entry.file}`,
+        description: `General Arrangement Plan — ${vessel.name}`,
+      },
+    });
+    console.log(`  [DocSeed] Seeded GA Plan for ${vessel.name}`);
+  }
+
   console.log('🌱 Database seeding completed successfully.');
 }
 

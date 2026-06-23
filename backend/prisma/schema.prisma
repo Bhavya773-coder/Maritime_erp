@@ -177,11 +177,27 @@ model Vessel {
   locationHistory  VesselLocationHistory[]
   certifications   Certification[]
   activityLogs     VesselActivityLog[]
+  documents        VesselDocument[]
 
   @@index([type])
   @@index([status])
   @@index([updatedAt])
   @@map("vessels")
+}
+
+model VesselDocument {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  vesselId     String   @map("vessel_id") @db.ObjectId
+  vessel       Vessel   @relation(fields: [vesselId], references: [id])
+  docType      String   @map("doc_type")
+  fileName     String   @map("file_name")
+  filePath     String   @map("file_path")
+  description  String?
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+
+  @@index([vesselId])
+  @@index([docType])
+  @@map("vessel_documents")
 }
 
 model VesselLocationHistory {

@@ -6,13 +6,15 @@ import {
   fetchVesselHistory, 
 } from '../../api/vessels';
 import type { Vessel, LocationHistory } from '../../api/vessels';
+import { getVesselDocuments } from '../../api/documents';
 import { VesselStatusBadge } from '../../components/fleet/VesselStatusBadge';
 import { FleetMap } from '../../components/fleet/FleetMap';
 import { VesselHistoryTable } from '../../components/fleet/VesselHistoryTable';
 import { UpdateLocationModal } from '../../components/fleet/UpdateLocationModal';
 import { 
   ArrowLeft, MapPin, Compass, Calendar, 
-  User, Anchor, Ship, AlertCircle, Edit
+  User, Anchor, Ship, AlertCircle, Edit,
+  FileText, Download
 } from 'lucide-react';
 import Sidebar from '../../components/Sidebar';
 
@@ -33,6 +35,7 @@ const VesselDetailPage: React.FC = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
 
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [documents, setDocuments] = useState<any[]>([]);
 
   const canUpdateLocation = user?.role === 'OWNER' || user?.role === 'FLEET_MANAGER';
 
@@ -85,6 +88,21 @@ const VesselDetailPage: React.FC = () => {
   useEffect(() => {
     loadLocationHistory(historyPage);
   }, [id, historyPage]);
+
+  useEffect(() => {
+    if (vessel?.id) {
+      getVesselDocuments(vessel.id)
+        .then(res => {
+          const payload = res.data || res;
+          if (payload.status === 'success') {
+            setDocuments(payload.data?.documents || payload.data || []);
+          } else {
+            setDocuments(payload.documents || payload.data?.documents || []);
+          }
+        })
+        .catch(() => setDocuments([]));
+    }
+  }, [vessel?.id]);
 
   const handleUpdateSuccess = () => {
     loadVesselDetails();
@@ -269,6 +287,39 @@ const VesselDetailPage: React.FC = () => {
                     </p>
                   </div>
                 )}
+
+                {/* Documents Card */}
+                <div className="glassmorphism p-6 rounded-2xl border border-slate-800 space-y-4">
+                  <div className="flex items-center space-x-2 px-1">
+                    <FileText className="h-4 w-4 text-brand-400" />
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider select-none">Documents</h3>
+                  </div>
+                  {documents.length === 0 ? (
+                    <p className="text-slate-500 text-xs px-1">No documents on file for this vessel.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {documents.map((doc) => (
+                        <div key={doc.id} className="flex items-center justify-between p-3 bg-slate-900/40 backdrop-blur border border-slate-850 rounded-xl">
+                          <div className="min-w-0 flex-1 pr-3">
+                            <p className="font-semibold text-slate-200 text-xs truncate" title={doc.fileName}>{doc.fileName}</p>
+                            <p className="text-[10px] text-slate-500 truncate mt-0.5">
+                              {doc.docType.replace('_', ' ')} {doc.description ? `— ${doc.description}` : ''}
+                            </p>
+                          </div>
+                          <a
+                            href={doc.downloadUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-brand-600 hover:bg-brand-500 text-white text-[11px] font-semibold px-3 py-1.5 rounded-lg transition flex items-center space-x-1 cursor-pointer shrink-0"
+                          >
+                            <Download className="h-3 w-3" />
+                            <span>Download</span>
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
               </div>
 

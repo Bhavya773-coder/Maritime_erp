@@ -20,6 +20,7 @@ const envSchema = z.object({
   LLAMA_API_URL: z.string().optional(),
   LLAMA_MODEL_NAME: z.string().default('llama3'),
   LLAMA_API_KEY: z.string().optional(),
+  SERVER_BASE_URL: z.string().url().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

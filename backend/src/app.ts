@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -35,6 +36,9 @@ app.use(
 // Body parsing middlewares
 app.use(express.json());
 app.use(cookieParser());
+
+// Serve vessel documents statically (after auth check in routes)
+app.use('/documents', express.static(path.join(__dirname, '..', 'documents')));
 
 // Rate limiting for auth routes specifically, or all API routes
 const apiLimiter = rateLimit({

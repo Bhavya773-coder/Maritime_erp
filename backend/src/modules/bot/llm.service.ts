@@ -541,7 +541,7 @@ export class LlmService {
     try {
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-      const [vessels, users, tasks, vesselActivity] = await Promise.all([
+      const [vessels, users, tasks, vesselActivity, gaDocs] = await Promise.all([
         prisma.vessel.findMany({
           where: { deletedAt: null },
           select: {
@@ -594,6 +594,11 @@ export class LlmService {
           },
           orderBy: { createdAt: 'desc' },
           take: 25
+        }),
+        prisma.vesselDocument.findMany({
+          where: { docType: 'GA_PLAN' },
+          include: { vessel: { select: { name: true } } },
+          orderBy: { vessel: { name: 'asc' } },
         })
       ]);
 
@@ -647,6 +652,15 @@ export class LlmService {
           const date = a.createdAt.toISOString().split('T')[0];
           ctx += `• ${a.vessel.name} — ${a.activityType}: ${a.summary} (${date})\n`;
         });
+      }
+
+      // Document context
+      if (gaDocs.length > 0) {
+        ctx += '\n=== VESSEL DOCUMENTS (GA Plans on file) ===\n';
+        gaDocs.forEach(d => {
+          ctx += `• ${d.vessel.name} — GA Plan available\n`;
+        });
+        ctx += '\nTo retrieve a GA plan via WhatsApp, type: "GA plan for [vessel name]"\n';
       }
 
       return ctx;

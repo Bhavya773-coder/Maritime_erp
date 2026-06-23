@@ -7,6 +7,8 @@ import { LlmService } from './llm.service';
 import { BotReplyParser } from './bot.reply-parser';
 import { BotFleetParser } from './bot.fleet-parser';
 import { BotFleetService } from './bot.fleet-service';
+import { BotDocumentParser } from './bot.document-parser';
+import { BotDocumentService } from './bot.document-service';
 
 export class WhatsAppService {
   /**
@@ -744,6 +746,33 @@ export class WhatsAppService {
       });
 
       const replyText = await BotFleetService.executeQuery(fleetQuery, senderUser.id);
+      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+      return { status: 'success', message: replyText, outgoing: [outgoing] };
+    }
+
+    // C.7 Parse and Execute Document Queries (e.g. "GA plan for ARCADIA SUMERU", "list GA plans")
+    const docQuery = BotDocumentParser.parse(textBody);
+    if (docQuery) {
+      await prisma.botMessage.create({
+        data: {
+          direction: 'INCOMING',
+          channel: BotChannel.WHATSAPP,
+          fromUserId: senderUser.id,
+          fromPhone: cleanPhone,
+          rawText: originalTextBody,
+          messageType: 'TEXT',
+          status: 'RECEIVED',
+          providerMessageId,
+        },
+      });
+
+      let replyText: string;
+      if (docQuery.type === 'LIST_GA_PLANS') {
+        replyText = await BotDocumentService.listAllGaPlans();
+      } else {
+        replyText = await BotDocumentService.getDocumentReply(docQuery.vesselName!);
+      }
+
       const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
       return { status: 'success', message: replyText, outgoing: [outgoing] };
     }
