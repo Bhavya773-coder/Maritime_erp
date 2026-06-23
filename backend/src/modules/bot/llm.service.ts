@@ -29,60 +29,6 @@ export class LlmService {
         console.log(`[LlmService] Executing DB operation: ${op.action}`, op.params);
         
         switch (op.action) {
-          case 'retrieveDocument': {
-            const { vesselName, docType } = op.params || {};
-            const resolvedDocType = docType || 'GA_PLAN';
-            
-            const vessels = await prisma.vessel.findMany({
-              where: {
-                name: { contains: vesselName, mode: 'insensitive' },
-                deletedAt: null
-              },
-              include: {
-                documents: {
-                  where: { docType: resolvedDocType },
-                  orderBy: { uploadedAt: 'desc' }
-                }
-              }
-            });
-
-            if (vessels.length === 0) {
-              auditLogs.push(`Failed to retrieve document: No vessel found matching "${vesselName}"`);
-              break;
-            }
-
-            const best = vessels.find(v => v.name.toLowerCase() === vesselName.toLowerCase())
-              || vessels.find(v => v.name.toLowerCase().startsWith(vesselName.toLowerCase()))
-              || vessels[0];
-
-            if (best.documents.length === 0) {
-              auditLogs.push(`Failed to retrieve document: Vessel "${best.name}" has no ${resolvedDocType} on file`);
-              break;
-            }
-
-            const doc = best.documents[0];
-            const base = process.env.SERVER_BASE_URL || `http://localhost:5000`;
-            const url = `${base}/api/vessels/documents/${doc.id}/download`;
-            const replyText = `📄 *${doc.label || 'Document'} — ${best.name}*\n📁 File: ${doc.fileName}\n🔗 Download: ${url}`;
-
-            // Add notification to send link back to user
-            const senderContact = await prisma.userContact.findFirst({
-              where: { userId: senderUserId, channel: 'WHATSAPP' }
-            });
-            if (senderContact) {
-              notifications.push({
-                toUserId: senderUserId,
-                toPhone: senderContact.phoneNumber,
-                rawText: replyText,
-                messageType: 'TEXT'
-              });
-              auditLogs.push(`Sent document download link for "${best.name}" (${resolvedDocType}) to sender`);
-            } else {
-              auditLogs.push(`Failed to send document link: Sender has no registered WhatsApp contact`);
-            }
-            break;
-          }
-
           case 'deleteTasks': {
             const { titleContains, status, assigneeName, all } = op.params || {};
             const whereClause: any = { isDeleted: false };
@@ -650,7 +596,6 @@ export class LlmService {
           take: 25
         }),
         prisma.vesselDocument.findMany({
-          where: { docType: 'GA_PLAN' },
           include: { vessel: { select: { name: true } } },
           orderBy: { vessel: { name: 'asc' } },
         })
@@ -710,11 +655,19 @@ export class LlmService {
 
       // Document context
       if (gaDocs.length > 0) {
-        ctx += '\n=== VESSEL DOCUMENTS (GA Plans on file) ===\n';
+        ctx += '\n=== VESSEL DOCUMENTS (Available on file) ===\n';
+        const docTypesMap: Record<string, string> = {
+          'GA_PLAN': 'GA Plan',
+          'REGISTRY': 'Registry Certificate',
+          'INSURANCE': 'Insurance Certificate',
+          'STABILITY_BOOKLET': 'Stability Booklet',
+          'SURVEY_CLASS': 'Survey/Class Certificate'
+        };
         gaDocs.forEach(d => {
-          ctx += `• ${d.vessel.name} — GA Plan available\n`;
+          const typeLabel = docTypesMap[d.docType] || d.docType;
+          ctx += `• ${d.vessel.name} — ${typeLabel} available (File: ${d.fileName})\n`;
         });
-        ctx += '\nTo retrieve a GA plan via WhatsApp, type: "GA plan for [vessel name]"\n';
+        ctx += '\nTo retrieve any document via WhatsApp, type: "[document type] for [vessel name]" (e.g. "Registry certificate for KB 24", "GA plan for ARCADIA SUMERU")\n';
       }
 
       return ctx;
@@ -807,7 +760,7 @@ Reply with ONLY this JSON (no extra text):
   "directResponse": "YOUR COMPLETE NATURAL LANGUAGE ANSWER HERE — NEVER null",
   "dbOperations": [
     {
-      "action": "deleteTasks" | "createTask" | "updateTask" | "updateVessel" | "addStaff" | "logVesselActivity" | "createPersonalReminder" | "retrieveDocument",
+      "action": "deleteTasks" | "createTask" | "updateTask" | "updateVessel" | "addStaff" | "logVesselActivity" | "createPersonalReminder",
       "params": object
     }
   ] | null
@@ -821,7 +774,6 @@ dbOperations parameter details:
 5. "addStaff": { "name": string, "phone": string, "position": string }
 6. "logVesselActivity": { "vesselName": string, "activityType": "TASK_ASSIGNED"|"TASK_COMPLETED"|"LOCATION_UPDATE"|"STATUS_UPDATE"|"CONVERSATION_MENTION", "summary": string }
 7. "createPersonalReminder": { "title": string, "description"?: string, "remindAt": "YYYY-MM-DDTHH:MM" }
-8. "retrieveDocument": { "vesselName": string, "docType": "GA_PLAN" | "STABILITY_BOOKLET" | "SURVEY_CERTIFICATE" | "INSURANCE_CERTIFICATE" | "REGISTRY" | "LOAD_LINE_CERTIFICATE" | null }
 
 CRITICAL RULES:
 • For mutations (create/update/delete), set BOTH "directResponse" AND "dbOperations". NEVER skip dbOperations.

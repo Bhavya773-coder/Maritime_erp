@@ -225,6 +225,106 @@ export class WhatsAppService {
   }
 
   /**
+   * Send WhatsApp document message using Cloud API
+   */
+  public static async sendWhatsAppDocument(
+    toPhone: string,
+    fileUrl: string,
+    fileName: string,
+    caption?: string
+  ): Promise<any> {
+    const cleanPhone = this.normalizePhone(toPhone);
+    
+    if (!env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID) {
+      console.log(`[SIMULATED WHATSAPP DOCUMENT] To: ${cleanPhone}, Link: ${fileUrl}, Filename: ${fileName}, Caption: ${caption}`);
+      return { status: 'SIMULATED_DOCUMENT', to: cleanPhone, document: fileUrl, filename: fileName, caption };
+    }
+
+    const url = `https://graph.facebook.com/${env.WHATSAPP_API_VERSION}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.WHATSAPP_ACCESS_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: cleanPhone,
+          type: 'document',
+          document: {
+            link: fileUrl,
+            filename: fileName,
+            ...(caption ? { caption } : {})
+          }
+        }),
+      });
+
+      const resBody = await response.json();
+
+      if (!response.ok) {
+        console.error(`[WhatsApp API Document Error] HTTP ${response.status}: ${JSON.stringify(resBody)}`);
+        throw new Error(`WhatsApp API document error: ${JSON.stringify(resBody)}`);
+      }
+
+      const msgId = (resBody as any)?.messages?.[0]?.id || 'unknown';
+      console.log(`[WhatsApp API] Document message accepted. wamid: ${msgId}, to: ${cleanPhone}`);
+
+      return resBody;
+    } catch (err: any) {
+      console.error('[WhatsApp Service Document Exception]', err);
+      return { status: 'FAILED_SEND_FALLBACK_SIMULATED', error: err.message };
+    }
+  }
+
+  /**
+   * Send WhatsApp document message and log as outgoing BotMessage.
+   * Returns the created BotMessage record.
+   */
+  public static async sendWhatsAppDocumentAndLog(
+    toUserId: string | null,
+    toPhone: string,
+    fileUrl: string,
+    fileName: string,
+    caption?: string
+  ): Promise<any> {
+    const cleanPhone = this.normalizePhone(toPhone);
+    const isSimulated = !env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID;
+
+    let sendResult = await this.sendWhatsAppDocument(cleanPhone, fileUrl, fileName, caption);
+    let actualStatus = isSimulated ? 'SIMULATED' : 'SENT';
+
+    if (sendResult?.status === 'FAILED_SEND_FALLBACK_SIMULATED') {
+      actualStatus = 'FAILED';
+      console.error(`[WhatsAppService] Document FAILED to send to ${cleanPhone}. File: "${fileName}"`);
+    } else if (sendResult?.status === 'SIMULATED_DOCUMENT') {
+      actualStatus = 'SIMULATED';
+      console.log(`[WhatsAppService] SIMULATED document to ${cleanPhone}: "${fileName}"`);
+    } else if (sendResult?.messages?.[0]?.id) {
+      const msgId = sendResult.messages[0].id;
+      console.log(`[WhatsAppService] Document SENT to ${cleanPhone}. wamid: ${msgId}. File: "${fileName}"`);
+    } else {
+      actualStatus = 'FAILED';
+      console.error(`[WhatsAppService] Document FAILED to send to ${cleanPhone}. Unexpected response: ${JSON.stringify(sendResult)}`);
+    }
+
+    const logText = `📄 Document: ${fileName}\n🔗 Download: ${fileUrl}${caption ? `\nCaption: ${caption}` : ''}`;
+
+    return await prisma.botMessage.create({
+      data: {
+        direction: 'OUTGOING',
+        channel: BotChannel.WHATSAPP,
+        toUserId,
+        toPhone: cleanPhone,
+        rawText: logText,
+        messageType: 'DOCUMENT',
+        status: actualStatus,
+      },
+    });
+  }
+
+  /**
    * Send WhatsApp interactive buttons message using Cloud API
    */
   public static async sendWhatsAppButtons(
@@ -750,7 +850,7 @@ export class WhatsAppService {
       return { status: 'success', message: replyText, outgoing: [outgoing] };
     }
 
-    // C.7 Parse and Execute Document Queries (e.g. "GA plan for ARCADIA SUMERU", "list GA plans")
+    // C.7 Parse and Execute Document Queries (e.g. "GA plan for ARCADIA SUMERU", "list GA plans", "registry for KB 24")
     const docQuery = BotDocumentParser.parse(textBody);
     if (docQuery) {
       await prisma.botMessage.create({
@@ -766,15 +866,31 @@ export class WhatsAppService {
         },
       });
 
-      let replyText: string;
-      if (docQuery.type === 'LIST_GA_PLANS') {
-        replyText = await BotDocumentService.listAllGaPlans();
+      if (docQuery.type === 'LIST_DOCUMENTS') {
+        const replyText = await BotDocumentService.listAllDocuments(docQuery.docType!);
+        const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+        return { status: 'success', message: replyText, outgoing: [outgoing] };
       } else {
-        replyText = await BotDocumentService.getDocumentReply(docQuery.vesselName!);
-      }
+        // GET_DOCUMENT
+        const result = await BotDocumentService.getDocumentRecord(docQuery.vesselName!, docQuery.docType!);
+        if (!result || !result.doc) {
+          // Fallback to text message explaining vessel not found or missing document
+          const replyText = await BotDocumentService.getDocumentReply(docQuery.vesselName!, docQuery.docType!);
+          const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
+          return { status: 'success', message: replyText, outgoing: [outgoing] };
+        }
 
-      const outgoing = await this.sendWhatsAppAndLog(senderUser.id, cleanPhone, replyText);
-      return { status: 'success', message: replyText, outgoing: [outgoing] };
+        // Send the actual PDF document attachment!
+        const outgoing = await this.sendWhatsAppDocumentAndLog(
+          senderUser.id,
+          cleanPhone,
+          result.url,
+          result.doc.fileName,
+          `📄 ${result.doc.description || result.doc.fileName}`
+        );
+        const replyText = `[Sent Document: ${result.doc.fileName}]`;
+        return { status: 'success', message: replyText, outgoing: [outgoing] };
+      }
     }
 
     // D. Route ALL messages through the LLM

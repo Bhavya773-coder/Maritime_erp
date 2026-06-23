@@ -1,22 +1,37 @@
 import prisma from '../../config/db';
 import { env } from '../../config/env';
 
+export interface DocumentSearchResult {
+  vessel: any;
+  doc: any;
+  url: string;
+}
+
 export class BotDocumentService {
-  private static getBaseUrl(): string {
+  public static getBaseUrl(): string {
     return (env as any).SERVER_BASE_URL || 
            (process.env.RENDER_EXTERNAL_HOSTNAME 
              ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` 
              : 'http://localhost:5000');
   }
 
+  private static getDocLabels(): Record<string, { singular: string; plural: string }> {
+    return {
+      'GA_PLAN': { singular: 'GA Plan', plural: 'GA Plans' },
+      'REGISTRY': { singular: 'Registry Certificate', plural: 'Registry Certificates' },
+      'INSURANCE': { singular: 'Insurance Certificate', plural: 'Insurance Certificates' },
+      'STABILITY_BOOKLET': { singular: 'Stability Booklet', plural: 'Stability Booklets' },
+      'SURVEY_CLASS': { singular: 'Survey/Class Certificate', plural: 'Survey/Class Certificates' },
+    };
+  }
+
   /**
-   * Find GA Plan document for a vessel by name fragment.
-   * Returns formatted WhatsApp reply string.
+   * Find a specific document for a vessel by name fragment and document type.
    */
-  public static async getDocumentReply(
+  public static async getDocumentRecord(
     vesselNameQuery: string,
-    docType: string = 'GA_PLAN'
-  ): Promise<string> {
+    docType: string
+  ): Promise<DocumentSearchResult | null> {
     const vessels = await prisma.vessel.findMany({
       where: {
         name: { contains: vesselNameQuery, mode: 'insensitive' },
@@ -28,7 +43,7 @@ export class BotDocumentService {
     });
 
     if (vessels.length === 0) {
-      return `❌ No vessel found matching "${vesselNameQuery}".\nTry: "list GA plans" to see available vessels.`;
+      return null;
     }
 
     // Best match: exact > starts-with > first result
@@ -38,59 +53,77 @@ export class BotDocumentService {
       || vessels[0];
 
     if (best.documents.length === 0) {
-      return `⚠️ Vessel *${best.name}* was found but has no ${docType.replace('_', ' ')} on file.\nContact fleet manager for the document.`;
+      return {
+        vessel: best,
+        doc: null,
+        url: '',
+      };
     }
 
     const doc = best.documents[0];
-    const url = `${this.getBaseUrl()}/${doc.filePath}`;
+    const url = encodeURI(`${this.getBaseUrl()}/${doc.filePath}`);
 
-    return `📄 *GA Plan — ${best.name}*\n📁 File: ${doc.fileName}\n🔗 Download: ${url}`;
+    return {
+      vessel: best,
+      doc,
+      url,
+    };
   }
 
   /**
-   * List all vessels that have GA plans.
+   * Find document for a vessel and return a formatted text reply description.
    */
-  public static async listAllGaPlans(): Promise<string> {
+  public static async getDocumentReply(
+    vesselNameQuery: string,
+    docType: string
+  ): Promise<string> {
+    const labels = this.getDocLabels()[docType] || { singular: docType.replace('_', ' '), plural: docType.replace('_', ' ') };
+    const result = await this.getDocumentRecord(vesselNameQuery, docType);
+
+    if (!result) {
+      return `❌ No vessel found matching "${vesselNameQuery}".\nTry: "list ${labels.plural}" to see available vessels.`;
+    }
+
+    if (!result.doc) {
+      return `⚠️ Vessel *${result.vessel.name}* was found but has no ${labels.singular} on file.\nContact fleet manager for the document.`;
+    }
+
+    return `📄 *${labels.singular} — ${result.vessel.name}*\n📁 File: ${result.doc.fileName}\n🔗 Download: ${result.url}`;
+  }
+
+  /**
+   * List all vessels that have documents of a specific type.
+   */
+  public static async listAllDocuments(docType: string): Promise<string> {
+    const labels = this.getDocLabels()[docType] || { singular: docType.replace('_', ' '), plural: docType.replace('_', ' ') };
+    
     const docs = await prisma.vesselDocument.findMany({
-      where: { docType: 'GA_PLAN' },
+      where: { docType },
       include: { vessel: { select: { name: true, type: true } } },
       orderBy: { vessel: { name: 'asc' } },
     });
 
     if (docs.length === 0) {
-      return '📋 No GA Plans are currently on file.';
+      return `📋 No ${labels.plural} are currently on file.`;
     }
 
     const barges = docs.filter(d => d.vessel.type === 'BARGE');
     const tugs = docs.filter(d => d.vessel.type === 'TUG');
 
-    let reply = `📋 *GA Plans On File (${docs.length} total)*\n\n`;
+    let reply = `📋 *${labels.plural} On File (${docs.length} total)*\n\n`;
     if (barges.length > 0) {
       reply += `*Barges (${barges.length}):*\n`;
-      barges.forEach((d, i) => { reply += `${i + 1}. ${d.vessel.name}\n`; });
+      // Deduplicate vessel names in case a vessel has multiple files of same docType
+      const uniqueBarges = Array.from(new Set(barges.map(d => d.vessel.name)));
+      uniqueBarges.forEach((name, i) => { reply += `${i + 1}. ${name}\n`; });
     }
     if (tugs.length > 0) {
       reply += `\n*Tugs (${tugs.length}):*\n`;
-      tugs.forEach((d, i) => { reply += `${i + 1}. ${d.vessel.name}\n`; });
+      const uniqueTugs = Array.from(new Set(tugs.map(d => d.vessel.name)));
+      uniqueTugs.forEach((name, i) => { reply += `${i + 1}. ${name}\n`; });
     }
-    reply += `\nTo get a specific plan, type: *GA plan for [vessel name]*`;
+    
+    reply += `\nTo get a specific document, type: *[document type] for [vessel name]* (e.g. "${labels.singular} for KB 24")`;
     return reply;
-  }
-
-  /**
-   * Resolve document type string from query text.
-   */
-  public static resolveDocType(text: string): string | null {
-    if (!text) return null;
-    const t = text.toLowerCase().trim();
-
-    if (/ga\s*plan|general\s+arrangement|ga\s+drawing/i.test(t)) return 'GA_PLAN';
-    if (/stability\s*booklet|stability/i.test(t)) return 'STABILITY_BOOKLET';
-    if (/registry/i.test(t)) return 'REGISTRY';
-    if (/insurance/i.test(t)) return 'INSURANCE_CERTIFICATE';
-    if (/survey\s*cert/i.test(t)) return 'SURVEY_CERTIFICATE';
-    if (/load\s*line|load\s+line\s+cert/i.test(t)) return 'LOAD_LINE_CERTIFICATE';
-
-    return null;
   }
 }
