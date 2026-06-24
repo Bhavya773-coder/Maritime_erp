@@ -555,7 +555,7 @@ export class LlmService {
     try {
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-      const [vessels, users, tasks, vesselActivity, gaDocs] = await Promise.all([
+      const [vessels, users, tasks, vesselActivity] = await Promise.all([
         prisma.vessel.findMany({
           where: { deletedAt: null },
           select: {
@@ -589,14 +589,13 @@ export class LlmService {
           where: { isDeleted: false, status: { not: 'COMPLETED' } },
           select: {
             title: true,
-            description: true,
             status: true,
             priority: true,
             dueDate: true,
-            createdAt: true,
-            creator: { select: { name: true } },
             assignee: { select: { name: true } }
-          }
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 30
         }),
         prisma.vesselActivityLog.findMany({
           where: { createdAt: { gte: sevenDaysAgo } },
@@ -607,81 +606,42 @@ export class LlmService {
             createdAt: true
           },
           orderBy: { createdAt: 'desc' },
-          take: 25
-        }),
-        prisma.vesselDocument.findMany({
-          include: { vessel: { select: { name: true } } },
-          orderBy: { vessel: { name: 'asc' } },
+          take: 10
         })
       ]);
 
       let ctx = '=== VESSELS (Fleet) ===\n';
       ctx += `Total vessels: ${vessels.length}\n\n`;
       vessels.forEach((v, i) => {
-        ctx += `${i + 1}. ${v.name}\n`;
-        ctx += `   Type: ${v.type} | Status: ${v.status} | Location: ${v.currentLocation}\n`;
-        ctx += `   Registration: ${v.registrationNo}`;
-        if (v.classification) ctx += ` | Class: ${v.classification}`;
-        if (v.irsIv) ctx += ` | IRS/IV: ${v.irsIv}`;
-        if (v.buildYear) ctx += ` | Built: ${v.buildYear}`;
-        ctx += '\n';
-        if (v.length || v.breadth || v.depth) {
-          ctx += `   Dimensions: ${v.length || '?'}m × ${v.breadth || '?'}m × ${v.depth || '?'}m\n`;
-        }
-        if (v.remark) ctx += `   Remark: ${v.remark}\n`;
-        ctx += '\n';
+        const dims = (v.length || v.breadth || v.depth) ? ` | Dim: ${v.length || '?'}x${v.breadth || '?'}x${v.depth || '?'}m` : '';
+        ctx += `${i + 1}. ${v.name} (${v.type}, Status: ${v.status}, Location: ${v.currentLocation}, Reg: ${v.registrationNo}, Class: ${v.classification || 'N/A'}, IRS/IV: ${v.irsIv || 'N/A'}, Built: ${v.buildYear || 'N/A'}${dims}${v.remark ? `, Remark: ${v.remark}` : ''})\n`;
       });
 
-      ctx += '=== STAFF (Active Employees) ===\n';
+      ctx += '\n=== STAFF (Active Employees) ===\n';
       ctx += `Total staff: ${users.length}\n\n`;
       users.forEach((u, i) => {
         const phone = u.contacts[0]?.phoneNumber ? '+' + u.contacts[0].phoneNumber : 'No phone';
         ctx += `${i + 1}. ${u.name} | Role: ${u.role} | Dept: ${u.department || 'N/A'} | Phone: ${phone}\n`;
       });
 
-      ctx += '\n=== ACTIVE TASKS (Not Completed) ===\n';
+      ctx += '\n=== ACTIVE TASKS (Not Completed, Max 30) ===\n';
       ctx += `Total active tasks: ${tasks.length}\n\n`;
       if (tasks.length === 0) {
         ctx += 'No active tasks currently.\n';
       } else {
         tasks.forEach((t, i) => {
           const assignee = t.assignee?.name || 'Unassigned';
-          const creator = t.creator?.name || 'Unknown';
           const due = t.dueDate ? t.dueDate.toISOString().split('T')[0] : 'No due date';
-          const created = t.createdAt ? t.createdAt.toISOString().split('T')[0] : 'Unknown';
-          ctx += `${i + 1}. "${t.title}"\n`;
-          ctx += `   Status: ${t.status} | Priority: ${t.priority} | Due: ${due}\n`;
-          ctx += `   Assigned to: ${assignee} | Created by: ${creator} | Created: ${created}\n`;
-          if (t.description && t.description !== 'Created dynamically by AI agent.') {
-            ctx += `   Description: ${t.description}\n`;
-          }
-          ctx += '\n';
+          ctx += `${i + 1}. "${t.title}" [Status: ${t.status}, Priority: ${t.priority}, Assignee: ${assignee}, Due: ${due}]\n`;
         });
       }
 
       if (vesselActivity.length > 0) {
-        ctx += '=== RECENT VESSEL ACTIVITY (last 7 days) ===\n\n';
+        ctx += '\n=== RECENT VESSEL ACTIVITY (last 7 days) ===\n';
         vesselActivity.forEach(a => {
           const date = a.createdAt.toISOString().split('T')[0];
           ctx += `• ${a.vessel.name} — ${a.activityType}: ${a.summary} (${date})\n`;
         });
-      }
-
-      // Document context
-      if (gaDocs.length > 0) {
-        ctx += '\n=== VESSEL DOCUMENTS (Available on file) ===\n';
-        const docTypesMap: Record<string, string> = {
-          'GA_PLAN': 'GA Plan',
-          'REGISTRY': 'Registry Certificate',
-          'INSURANCE': 'Insurance Certificate',
-          'STABILITY_BOOKLET': 'Stability Booklet',
-          'SURVEY_CLASS': 'Survey/Class Certificate'
-        };
-        gaDocs.forEach(d => {
-          const typeLabel = docTypesMap[d.docType] || d.docType;
-          ctx += `• ${d.vessel.name} — ${typeLabel} available (File: ${d.fileName})\n`;
-        });
-        ctx += '\nTo retrieve any document via WhatsApp, type: "[document type] for [vessel name]" (e.g. "Registry certificate for KB 24", "GA plan for ARCADIA SUMERU")\n';
       }
 
       return ctx;
@@ -904,72 +864,87 @@ Good Response:
       role: senderUserRole as Role,
       phone: senderPhone
     };
-    // Intercept document queries to send the PDF file directly and instantly
-    const docQuery = BotDocumentParser.parse(messageText);
-    if (docQuery && docQuery.type) {
-      if (docQuery.type === 'GET_DOCUMENT' && docQuery.vesselName && docQuery.docType) {
-        console.log(`[LlmService] Intercepted document get query for ${docQuery.vesselName} (${docQuery.docType})`);
-        const result = await ToolExecutor.execute({
-          tool: 'sendAssetDocument',
-          params: {
-            assetName: docQuery.vesselName,
-            docType: docQuery.docType
-          }
-        }, user);
-
-        return {
-          isERPRelated: true,
-          directResponse: result.message,
-          notifications: result.notifications || []
-        };
-      } else if (docQuery.type === 'LIST_DOCUMENTS' && docQuery.docType) {
-        console.log(`[LlmService] Intercepted document list query for ${docQuery.docType}`);
-        const result = await BotDocumentService.listAllDocuments(docQuery.docType);
-        return {
-          isERPRelated: true,
-          directResponse: result
-        };
-      }
-    }
-
     const history = await this.getChatHistory(senderUserId);
-    const toolsPrompt = buildToolsPrompt();
     const today = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
 
-    const systemPrompt = `You are the intelligent AI assistant for Arvind Port & Infra Limited (APIL), a maritime company.
-Today's date: ${today}
-User you are chatting with: ${senderUserName} (Role: ${senderUserRole})
+    // Fetch live database context — staff, vessels, tasks, documents
+    const dbContext = await LlmService.getDatabaseContext();
 
-You can perform tasks, search fleet assets, find staff details, and retrieve company documents by executing tools.
-All communications must be in natural language. Do not output raw JSON or code to the user.
+    const systemPrompt = `You are the AI assistant for Arvind Port & Infra Limited (APIL), a maritime company. You work on WhatsApp.
+You are talking to: ${senderUserName} (Role: ${senderUserRole})
+Today: ${today}
 
-════════════════════════════════════════════════
-AVAILABLE TOOLS
-════════════════════════════════════════════════
-${toolsPrompt}
+══════════════════════════════════════
+LIVE COMPANY DATABASE
+══════════════════════════════════════
+${dbContext}
 
-════════════════════════════════════════════════
-RESPONSE FORMAT (JSON ONLY)
-════════════════════════════════════════════════
-You must output a single JSON object. Do not wrap it in markdown or add text outside the JSON.
-Format:
+══════════════════════════════════════
+YOUR JOB
+══════════════════════════════════════
+You have the full company database above. Use it to answer questions directly.
+
+READ QUESTIONS — answer directly from the database above. Do NOT call any tool.
+Examples: "list staff", "show barges", "what vessels are in Mumbai", "show IV barges", "what tasks are pending", "who is assigned to what"
+
+ACTION REQUESTS — use a tool. Only these 5 actions need tools:
+1. CREATE a task → use createTask tool
+2. UPDATE/COMPLETE/DELEGATE a task → use completeTask / delegateTask tool  
+3. SEND a document (GA plan, registry, etc.) → use sendAssetDocument tool
+4. SET a reminder → use createReminder tool
+5. UPDATE vessel location → use updateVessel tool (in dbOperations format)
+
+══════════════════════════════════════
+RESPONSE FORMAT — JSON ONLY, always
+══════════════════════════════════════
 {
-  "thought": "Your internal thoughts on what the user wants and what tool to use.",
-  "toolCalls": [
-    {
-      "tool": "toolName",
-      "params": { ... }
-    }
-  ],
-  "directResponse": "A natural language response to the user. Set this only when you are done executing all tools or when you need clarification."
+  "directResponse": "Your complete answer in natural language. NEVER empty. NEVER null.",
+  "toolCalls": [{ "tool": "toolName", "params": {} }]
 }
 
-CRITICAL RULES:
-1. Always output valid JSON matching the format above.
-2. If you need to perform an action (e.g. create a task, get asset details, send document), you MUST specify the tool in "toolCalls".
-3. After executing a tool, the system will feed back the result to you in a follow-up turn. You can then answer the user in "directResponse".
-4. If the user's intent is unclear or details are missing, ask a clarification question in "directResponse" and do not call any tools.
-5. In tool parameters, you MUST pass the exact assigneeName, userName, or assetName as written by the user, including any trailing initials/letters (e.g. if the user says "Hardik K", you MUST pass "Hardik K", not just "Hardik"). Do NOT attempt to complete, correct, or expand names yourself. For example, if the user says "Hardik", pass "Hardik", not "Hardik Kateshiya".`;
+RULES:
+1. "directResponse" is MANDATORY in every response. Never omit it. Never say "I have processed your request." Write the actual answer.
+2. For READ questions: put the answer in "directResponse", set "toolCalls" to [].
+3. For ACTIONS: put a confirmation sentence in "directResponse" AND include the tool in "toolCalls".
+4. After a tool runs, the system sends you the result. Write the final "directResponse" from it. Set "toolCalls" to [].
+5. NEVER invent data. Use only what is in the LIVE COMPANY DATABASE above.
+6. Show phone numbers exactly as stored — never mask digits.
+7. For vessel name matching: "kb-26" = "KB 26" = "kb26" = "KB26". Ignore dashes, spaces, capitalisation. "the kb 25" = "KB 25" (strip "the").
+8. For document types: "ga plan" / "ga drawing" / "general arrangement" = GA_PLAN. "registry" / "reg cert" = REGISTRY. "insurance" / "ins" = INSURANCE. "stability booklet" / "stability" = STABILITY_BOOKLET. "survey" / "class cert" = SURVEY_CLASS.
+
+══════════════════════════════════════
+TOOL REFERENCE (actions only)
+══════════════════════════════════════
+createTask: { title, assigneeName, dueDate (YYYY-MM-DD, default ${tomorrow}), priority (HIGH/MEDIUM/LOW) }
+completeTask: { taskId? or titleContains, notes? }
+delegateTask: { taskId? or titleContains, assigneeName, reason? }
+sendAssetDocument: { assetName (vessel name), docType (GA_PLAN / REGISTRY / INSURANCE / STABILITY_BOOKLET / SURVEY_CLASS) }
+createReminder: { title, remindAt (YYYY-MM-DDTHH:MM), description? }
+
+══════════════════════════════════════
+EXAMPLES
+══════════════════════════════════════
+User: "list all staff with numbers"
+{ "directResponse": "Here are all staff members:\n1. [Name] | [Role] | [Phone]\n...", "toolCalls": [] }
+
+User: "show all IV barges"
+{ "directResponse": "Barges with IV classification:\n1. [Name] — IRS/IV: IV, Location: ...\n...", "toolCalls": [] }
+
+User: "give me ga plan of kb 26"
+{ "directResponse": "Sending GA Plan for KB 26 to your WhatsApp now.", "toolCalls": [{ "tool": "sendAssetDocument", "params": { "assetName": "KB 26", "docType": "GA_PLAN" } }] }
+
+User: "give me the registry of the kb-25"
+{ "directResponse": "Sending Registry Certificate for KB 25 to your WhatsApp now.", "toolCalls": [{ "tool": "sendAssetDocument", "params": { "assetName": "KB 25", "docType": "REGISTRY" } }] }
+
+User: "give a task to hardik k to check fuel of kb32"
+{ "directResponse": "Task created: 'Check fuel of KB 32' assigned to Hardik Kateshiya, due ${tomorrow}.", "toolCalls": [{ "tool": "createTask", "params": { "title": "Check fuel of KB 32", "assigneeName": "Hardik K", "priority": "MEDIUM" } }] }
+
+User: "hey what can you help me"
+{ "directResponse": "Hi ${senderUserName}! I can help you with:\\n• Staff & vessel info\\n• Task creation, updates, and delegation\\n• GA plans, registry, insurance, stability booklets\\n• Vessel locations and activity\\nJust ask naturally!", "toolCalls": [] }
+
+User: "what tasks are pending"
+{ "directResponse": "Active tasks:\n1. [title] — assigned to [name], due [date], status [status]\n...", "toolCalls": [] }`;
 
     const chatMessages: any[] = [
       { role: 'system', content: systemPrompt },
@@ -1144,7 +1119,9 @@ CRITICAL RULES:
           });
 
         } else {
-          finalResponse = parsed.directResponse;
+          finalResponse = (parsed.directResponse && parsed.directResponse.trim())
+            ? parsed.directResponse.trim()
+            : lastToolResultSummary || null;
           break;
         }
 
