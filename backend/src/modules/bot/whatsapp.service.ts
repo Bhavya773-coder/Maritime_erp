@@ -1170,27 +1170,52 @@ export class WhatsAppService {
           const nText = n.text || n.rawText;
           if (!nText) continue;
           try {
-            const notifMsg = await this.sendWhatsAppAndLog(n.toUserId || null, n.toPhone, nText);
-            outgoingNotifications.push(notifMsg);
+            if (n.messageType === 'INTERACTIVE_BUTTON' && n.taskId && n.toUserId) {
+              const { BotNotificationService } = require('./bot.notification-service');
+              const isDelegated = nText.toLowerCase().includes('delegated');
+              
+              if (isDelegated) {
+                const senderMatch = nText.match(/(?:delegated to you by|from)\s+([^:]+):/i);
+                const senderName = senderMatch ? senderMatch[1].trim() : senderUser.name;
+                
+                const titleMatch = nText.match(/:\s*\"(.+?)\"/);
+                const taskTitle = titleMatch ? titleMatch[1].trim() : nText;
+                
+                const reasonMatch = nText.match(/Reason:\s*(.+)$/i);
+                const note = reasonMatch ? reasonMatch[1].trim() : 'Delegated via AI';
+                
+                const notifMsg = await BotNotificationService.sendTaskDelegation(
+                  n.toUserId,
+                  n.toPhone,
+                  senderName,
+                  taskTitle,
+                  note,
+                  n.taskId
+                );
+                outgoingNotifications.push(notifMsg);
+              } else {
+                const senderMatch = nText.match(/New task from ([^:]+):/);
+                const senderName = senderMatch ? senderMatch[1].trim() : senderUser.name;
+                
+                const titleMatch = nText.match(/New task from [^:]+:\s*(.+?)\.\s*Due:/);
+                const taskTitle = titleMatch ? titleMatch[1].trim() : nText;
+
+                const notifMsg = await BotNotificationService.sendTaskAssignment(
+                  n.toUserId,
+                  n.toPhone,
+                  senderName,
+                  taskTitle,
+                  n.taskId
+                );
+                outgoingNotifications.push(notifMsg);
+              }
+            } else {
+              const notifMsg = await this.sendWhatsAppAndLog(n.toUserId || null, n.toPhone, nText);
+              outgoingNotifications.push(notifMsg);
+            }
           } catch (sendErr: any) {
             console.error(`[WhatsAppService] Failed to send notification: ${sendErr.message}`);
             continue;
-          }
-          if (n.messageType === 'INTERACTIVE_BUTTON' && n.taskId && n.toUserId) {
-            const inWindow = await this.isWithinConversationWindow(n.toUserId);
-            if (inWindow) {
-              try {
-                const buttonNotif = await this.sendWhatsAppTaskButtonsAndLog(
-                  n.toUserId,
-                  n.toPhone,
-                  nText,
-                  n.taskId
-                );
-                outgoingNotifications.push(buttonNotif);
-              } catch (btnErr: any) {
-                console.warn('[WhatsAppService] Buttons follow-up failed:', btnErr.message);
-              }
-            }
           }
         }
       }
