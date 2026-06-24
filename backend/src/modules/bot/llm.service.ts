@@ -901,6 +901,34 @@ Good Response:
       phone: senderPhone
     };
 
+    // Intercept document queries to send the PDF file directly and instantly
+    const docQuery = BotDocumentParser.parse(messageText);
+    if (docQuery && docQuery.type) {
+      if (docQuery.type === 'GET_DOCUMENT' && docQuery.vesselName && docQuery.docType) {
+        console.log(`[LlmService] Intercepted document get query for ${docQuery.vesselName} (${docQuery.docType})`);
+        const result = await ToolExecutor.execute({
+          tool: 'sendAssetDocument',
+          params: {
+            assetName: docQuery.vesselName,
+            docType: docQuery.docType
+          }
+        }, user);
+
+        return {
+          isERPRelated: true,
+          directResponse: result.message,
+          notifications: result.notifications || []
+        };
+      } else if (docQuery.type === 'LIST_DOCUMENTS' && docQuery.docType) {
+        console.log(`[LlmService] Intercepted document list query for ${docQuery.docType}`);
+        const result = await BotDocumentService.listAllDocuments(docQuery.docType);
+        return {
+          isERPRelated: true,
+          directResponse: result
+        };
+      }
+    }
+
     const history = await this.getChatHistory(senderUserId);
     const toolsPrompt = buildToolsPrompt();
     const today = new Date().toISOString().split('T')[0];
