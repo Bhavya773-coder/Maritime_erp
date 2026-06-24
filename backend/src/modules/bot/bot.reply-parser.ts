@@ -1,17 +1,18 @@
 export interface ReplyCommand {
-  type: 'DONE' | 'UPDATE' | 'STATUS' | 'HELP' | 'DELEGATE' | 'DELAY';
+  type: 'DONE' | 'UPDATE' | 'STATUS' | 'HELP' | 'DELEGATE' | 'DELAY' | 'APPROVE_DELAY' | 'REJECT_DELAY';
   targetTaskId?: string;
-  message?: string; // For UPDATE/DELEGATE
+  message?: string; // For UPDATE/DELEGATE/REJECT_DELAY
   assigneeName?: string; // For DELEGATE
-  delayDate?: string; // For DELAY (ISO date string or natural language like "tomorrow")
+  delayDate?: string; // For DELAY
   delayReason?: string; // For DELAY
+  delayRequestId?: string; // For APPROVE_DELAY/REJECT_DELAY
 }
 
 export class BotReplyParser {
   public static parse(text: string): ReplyCommand | null {
     if (!text) return null;
 
-    // 1. Extract Task ID if present (UUID or MongoDB ObjectId)
+    // 1. Extract Task ID or Delay Request ID if present (UUID or MongoDB ObjectId)
     const idRegex = /[0-9a-f]{24}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
     const idMatch = text.match(idRegex);
     const targetTaskId = idMatch ? idMatch[0] : undefined;
@@ -26,6 +27,23 @@ export class BotReplyParser {
     const lower = cleanedText.toLowerCase();
 
     // 2. Natural language command detection (no prefixes required)
+
+    // APPROVE DELAY - "approve delay abc123", "approve delay request abc123"
+    const approveDelayMatch = text.match(/(?:approve|accept).*(?:delay|extension).*([0-9a-f]{24})/i);
+    if (approveDelayMatch) {
+      return { type: 'APPROVE_DELAY', delayRequestId: approveDelayMatch[1] };
+    }
+    // Also check if ID is at the end: "approve delay abc123"
+    const approveDelayEndMatch = text.match(/(?:approve|accept).*(?:delay|extension).*([0-9a-f]{24})$/i);
+    if (approveDelayEndMatch) {
+      return { type: 'APPROVE_DELAY', delayRequestId: approveDelayEndMatch[1] };
+    }
+
+    // REJECT DELAY - "reject delay abc123", "reject delay request abc123"
+    const rejectDelayMatch = text.match(/(?:reject|deny|decline).*(?:delay|extension).*([0-9a-f]{24})/i);
+    if (rejectDelayMatch) {
+      return { type: 'REJECT_DELAY', delayRequestId: rejectDelayMatch[1], message: cleanedText };
+    }
     
     // DONE or COMPLETE - natural phrases
     if (/\b(?:done|completed|finished|mark as done|it is done|all done|task completed|i have completed|i have finished|i finished)\b/i.test(lower)) {

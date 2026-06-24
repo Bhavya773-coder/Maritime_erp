@@ -420,6 +420,230 @@ export class BotReplyService {
       };
     }
 
+    // APPROVE_DELAY - approve a delay request (manager/owner only)
+    if (command.type === 'APPROVE_DELAY') {
+      const isManagement = sender.role === 'OWNER' || sender.role === 'MANAGER' || sender.role === 'FLEET_MANAGER';
+      if (!isManagement) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, 'You do not have permission to approve delay requests.');
+        return { status: 'error', message: 'Permission denied.' };
+      }
+      if (!command.delayRequestId) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, 'Please specify the delay request ID to approve.');
+        return { status: 'error', message: 'No delay request ID specified.' };
+      }
+
+      const delayRequest = await prisma.delayRequest.findUnique({
+        where: { id: command.delayRequestId },
+        include: { task: true, requestedBy: true },
+      });
+      if (!delayRequest) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, 'Delay request not found.');
+        return { status: 'error', message: 'Delay request not found.' };
+      }
+      if (delayRequest.status !== 'PENDING') {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, `This delay request is already ${delayRequest.status.toLowerCase()}.`);
+        return { status: 'error', message: `Already ${delayRequest.status.toLowerCase()}.` };
+      }
+
+      await prisma.delayRequest.update({
+        where: { id: command.delayRequestId },
+        data: { status: 'APPROVED', approvedById: sender.id, approvedAt: new Date() },
+      });
+      await prisma.task.update({
+        where: { id: delayRequest.taskId },
+        data: { dueDate: delayRequest.proposedDueDate },
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: sender.id,
+          action: 'BOT_DELAY_APPROVED',
+          details: `Delay request ${command.delayRequestId} approved by ${sender.name}.`,
+        },
+      });
+
+      const requesterContact = await prisma.userContact.findFirst({
+        where: { userId: delayRequest.requestedById, channel: BotChannel.WHATSAPP },
+      });
+      if (requesterContact?.phoneNumber) {
+        await WhatsAppService.sendWhatsAppAndLog(
+          delayRequest.requestedById,
+          requesterContact.phoneNumber,
+          `✅ Your delay request for "${delayRequest.task.title}" has been APPROVED. New due date: ${delayRequest.proposedDueDate.toISOString().split('T')[0]}.`
+        );
+      }
+
+      const confirmationText = `Delay request approved for "${delayRequest.task.title}". New due date: ${delayRequest.proposedDueDate.toISOString().split('T')[0]}.`;
+      const senderMsg = await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, confirmationText);
+      return { status: 'success', message: confirmationText, outgoing: [senderMsg] };
+    }
+
+    // REJECT_DELAY - reject a delay request (manager/owner only)
+    if (command.type === 'REJECT_DELAY') {
+      const isManagement = sender.role === 'OWNER' || sender.role === 'MANAGER' || sender.role === 'FLEET_MANAGER';
+      if (!isManagement) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, 'You do not have permission to reject delay requests.');
+        return { status: 'error', message: 'Permission denied.' };
+      }
+      if (!command.delayRequestId) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, 'Please specify the delay request ID to reject.');
+        return { status: 'error', message: 'No delay request ID specified.' };
+      }
+
+      const delayRequest = await prisma.delayRequest.findUnique({
+        where: { id: command.delayRequestId },
+        include: { task: true, requestedBy: true },
+      });
+      if (!delayRequest) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, 'Delay request not found.');
+        return { status: 'error', message: 'Delay request not found.' };
+      }
+      if (delayRequest.status !== 'PENDING') {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, `This delay request is already ${delayRequest.status.toLowerCase()}.`);
+        return { status: 'error', message: `Already ${delayRequest.status.toLowerCase()}.` };
+      }
+
+      await prisma.delayRequest.update({
+        where: { id: command.delayRequestId },
+        data: { status: 'REJECTED', approvedById: sender.id, approvedAt: new Date() },
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: sender.id,
+          action: 'BOT_DELAY_REJECTED',
+          details: `Delay request ${command.delayRequestId} rejected by ${sender.name}.`,
+        },
+      });
+
+      const requesterContact = await prisma.userContact.findFirst({
+        where: { userId: delayRequest.requestedById, channel: BotChannel.WHATSAPP },
+      });
+      if (requesterContact?.phoneNumber) {
+        await WhatsAppService.sendWhatsAppAndLog(
+          delayRequest.requestedById,
+          requesterContact.phoneNumber,
+          `❌ Your delay request for "${delayRequest.task.title}" has been REJECTED.`
+        );
+      }
+
+      const confirmationText = `Delay request rejected for "${delayRequest.task.title}".`;
+      const senderMsg = await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, confirmationText);
+      return { status: 'success', message: confirmationText, outgoing: [senderMsg] };
+    }
+
+    // APPROVE_DELAY - approve a delay request (manager/owner only)
+    if (command.type === 'APPROVE_DELAY') {
+      const isManagement = sender.role === 'OWNER' || sender.role === 'MANAGER' || sender.role === 'FLEET_MANAGER';
+      if (!isManagement) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, 'You do not have permission to approve delay requests.');
+        return { status: 'error', message: 'Permission denied.' };
+      }
+      if (!command.delayRequestId) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, 'Please specify the delay request ID to approve.');
+        return { status: 'error', message: 'No delay request ID specified.' };
+      }
+
+      const delayRequest = await prisma.delayRequest.findUnique({
+        where: { id: command.delayRequestId },
+        include: { task: true, requestedBy: true },
+      });
+      if (!delayRequest) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, 'Delay request not found.');
+        return { status: 'error', message: 'Delay request not found.' };
+      }
+      if (delayRequest.status !== 'PENDING') {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, `This delay request is already ${delayRequest.status.toLowerCase()}.`);
+        return { status: 'error', message: `Already ${delayRequest.status.toLowerCase()}.` };
+      }
+
+      await prisma.delayRequest.update({
+        where: { id: command.delayRequestId },
+        data: { status: 'APPROVED', approvedById: sender.id, approvedAt: new Date() },
+      });
+      await prisma.task.update({
+        where: { id: delayRequest.taskId },
+        data: { dueDate: delayRequest.proposedDueDate },
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: sender.id,
+          action: 'BOT_DELAY_APPROVED',
+          details: `Delay request ${command.delayRequestId} approved by ${sender.name}.`,
+        },
+      });
+
+      const requesterContact = await prisma.userContact.findFirst({
+        where: { userId: delayRequest.requestedById, channel: BotChannel.WHATSAPP },
+      });
+      if (requesterContact?.phoneNumber) {
+        await WhatsAppService.sendWhatsAppAndLog(
+          delayRequest.requestedById,
+          requesterContact.phoneNumber,
+          `✅ Your delay request for "${delayRequest.task.title}" has been APPROVED. New due date: ${delayRequest.proposedDueDate.toISOString().split('T')[0]}.`
+        );
+      }
+
+      const confirmationText = `Delay request approved for "${delayRequest.task.title}". New due date: ${delayRequest.proposedDueDate.toISOString().split('T')[0]}.`;
+      const senderMsg = await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, confirmationText);
+      return { status: 'success', message: confirmationText, outgoing: [senderMsg] };
+    }
+
+    // REJECT_DELAY - reject a delay request (manager/owner only)
+    if (command.type === 'REJECT_DELAY') {
+      const isManagement = sender.role === 'OWNER' || sender.role === 'MANAGER' || sender.role === 'FLEET_MANAGER';
+      if (!isManagement) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, 'You do not have permission to reject delay requests.');
+        return { status: 'error', message: 'Permission denied.' };
+      }
+      if (!command.delayRequestId) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, 'Please specify the delay request ID to reject.');
+        return { status: 'error', message: 'No delay request ID specified.' };
+      }
+
+      const delayRequest = await prisma.delayRequest.findUnique({
+        where: { id: command.delayRequestId },
+        include: { task: true, requestedBy: true },
+      });
+      if (!delayRequest) {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, 'Delay request not found.');
+        return { status: 'error', message: 'Delay request not found.' };
+      }
+      if (delayRequest.status !== 'PENDING') {
+        await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, `This delay request is already ${delayRequest.status.toLowerCase()}.`);
+        return { status: 'error', message: `Already ${delayRequest.status.toLowerCase()}.` };
+      }
+
+      await prisma.delayRequest.update({
+        where: { id: command.delayRequestId },
+        data: { status: 'REJECTED', approvedById: sender.id, approvedAt: new Date() },
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: sender.id,
+          action: 'BOT_DELAY_REJECTED',
+          details: `Delay request ${command.delayRequestId} rejected by ${sender.name}.`,
+        },
+      });
+
+      const requesterContact = await prisma.userContact.findFirst({
+        where: { userId: delayRequest.requestedById, channel: BotChannel.WHATSAPP },
+      });
+      if (requesterContact?.phoneNumber) {
+        await WhatsAppService.sendWhatsAppAndLog(
+          delayRequest.requestedById,
+          requesterContact.phoneNumber,
+          `❌ Your delay request for "${delayRequest.task.title}" has been REJECTED.`
+        );
+      }
+
+      const confirmationText = `Delay request rejected for "${delayRequest.task.title}".`;
+      const senderMsg = await WhatsAppService.sendWhatsAppAndLog(sender.id, fromPhone, confirmationText);
+      return { status: 'success', message: confirmationText, outgoing: [senderMsg] };
+    }
+
     return { status: 'error', message: 'Unknown reply command.' };
   }
 

@@ -1,6 +1,7 @@
 import prisma from '../../config/db';
 import { VesselType, VesselStatus } from '@prisma/client';
 import { FleetQuery } from './bot.fleet-parser';
+import { getVesselNameCandidates } from './bot.utils';
 
 function getCoords(location: string): { latitude: number; longitude: number } {
   const loc = location.toLowerCase().trim();
@@ -29,11 +30,16 @@ export class BotFleetService {
         return 'Please specify a new location. Format: "Update [Vessel] location to [New Location]"';
       }
 
-      const vessel = await prisma.vessel.findFirst({
-        where: { name: { mode: 'insensitive', equals: name }, deletedAt: null }
-      }) || await prisma.vessel.findFirst({
-        where: { name: { mode: 'insensitive', contains: name }, deletedAt: null }
-      });
+      const candidates = getVesselNameCandidates(name);
+      let vessel = null;
+      for (const c of candidates) {
+        vessel = await prisma.vessel.findFirst({
+          where: { name: { mode: 'insensitive', equals: c }, deletedAt: null }
+        }) || await prisma.vessel.findFirst({
+          where: { name: { mode: 'insensitive', contains: c }, deletedAt: null }
+        });
+        if (vessel) break;
+      }
 
       if (!vessel) {
         return `Vessel "${name}" not found in our fleet database.`;
@@ -75,26 +81,16 @@ export class BotFleetService {
       const name = query.vesselName || '';
       
       // Find vessel by name (case-insensitive, exact or prefix)
-      const vessel = await prisma.vessel.findFirst({
-        where: {
-          name: {
-            mode: 'insensitive',
-            equals: name,
-          },
-          deletedAt: null,
-        },
-      });
-
-      // Fallback: search by containing the name if exact matches nothing
-      const targetVessel = vessel || await prisma.vessel.findFirst({
-        where: {
-          name: {
-            mode: 'insensitive',
-            contains: name,
-          },
-          deletedAt: null,
-        },
-      });
+      const candidates = getVesselNameCandidates(name);
+      let targetVessel = null;
+      for (const c of candidates) {
+        targetVessel = await prisma.vessel.findFirst({
+          where: { name: { mode: 'insensitive', equals: c }, deletedAt: null }
+        }) || await prisma.vessel.findFirst({
+          where: { name: { mode: 'insensitive', contains: c }, deletedAt: null }
+        });
+        if (targetVessel) break;
+      }
 
       if (!targetVessel) {
         return `Vessel "${name}" not found in our fleet database.`;

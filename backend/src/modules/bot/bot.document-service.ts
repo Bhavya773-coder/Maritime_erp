@@ -1,6 +1,7 @@
 import prisma from '../../config/db';
 import { env } from '../../config/env';
 import { generateSignedUrl } from '../../modules/documents/signed-url-controller';
+import { getVesselNameCandidates } from './bot.utils';
 
 export interface DocumentSearchResult {
   vessel: any;
@@ -33,15 +34,20 @@ export class BotDocumentService {
     vesselNameQuery: string,
     docType: string
   ): Promise<DocumentSearchResult | null> {
-    const vessels = await prisma.vessel.findMany({
-      where: {
-        name: { contains: vesselNameQuery, mode: 'insensitive' },
-        deletedAt: null,
-      },
-      include: {
-        documents: { where: { docType } },
-      },
-    });
+    const candidates = getVesselNameCandidates(vesselNameQuery);
+    let vessels: any[] = [];
+    for (const c of candidates) {
+      vessels = await prisma.vessel.findMany({
+        where: {
+          name: { contains: c, mode: 'insensitive' },
+          deletedAt: null,
+        },
+        include: {
+          documents: { where: { docType } },
+        },
+      });
+      if (vessels.length > 0) break;
+    }
 
     if (vessels.length === 0) {
       return null;

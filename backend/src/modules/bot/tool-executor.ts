@@ -2,7 +2,7 @@ import prisma from '../../config/db';
 import { Role, BotChannel } from '@prisma/client';
 import { getToolDefinition } from './tool-definitions';
 import { BotService } from './bot.service';
-import { calculateNextReminderAt } from './bot.utils';
+import { calculateNextReminderAt, getVesselNameCandidates } from './bot.utils';
 import { CertsService } from '../certifications/certs.service';
 import { TasksService } from '../tasks/tasks.service';
 
@@ -169,13 +169,18 @@ export class ToolExecutor {
       }
 
       case 'getAssetDetails': {
-        const vessel = await prisma.vessel.findFirst({
-          where: { name: { contains: params.assetName, mode: 'insensitive' }, deletedAt: null },
-          include: {
-            certifications: true,
-            documents: { select: { docType: true, fileName: true } },
-          },
-        });
+        const candidates = getVesselNameCandidates(params.assetName);
+        let vessel = null;
+        for (const c of candidates) {
+          vessel = await prisma.vessel.findFirst({
+            where: { name: { contains: c, mode: 'insensitive' }, deletedAt: null },
+            include: {
+              certifications: true,
+              documents: { select: { docType: true, fileName: true } },
+            },
+          });
+          if (vessel) break;
+        }
         if (!vessel) {
           return {
             success: false, tool, data: null, message: `Vessel "${params.assetName}" not found.`, notifications,
@@ -197,10 +202,15 @@ export class ToolExecutor {
       }
 
       case 'getAssetDocuments': {
-        const vessel = await prisma.vessel.findFirst({
-          where: { name: { contains: params.assetName, mode: 'insensitive' }, deletedAt: null },
-          include: { documents: true },
-        });
+        const candidates = getVesselNameCandidates(params.assetName);
+        let vessel = null;
+        for (const c of candidates) {
+          vessel = await prisma.vessel.findFirst({
+            where: { name: { contains: c, mode: 'insensitive' }, deletedAt: null },
+            include: { documents: true },
+          });
+          if (vessel) break;
+        }
         if (!vessel) {
           return {
             success: false, tool, data: null, message: `Vessel "${params.assetName}" not found.`, notifications,

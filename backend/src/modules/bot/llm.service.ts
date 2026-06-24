@@ -801,20 +801,74 @@ CRITICAL RULES:
 • isERPRelated should be false ONLY for: coding help, math homework, general knowledge questions completely unrelated to work.
 
 ════════════════════════════════════════════════
-EXAMPLES OF GOOD RESPONSES
+DOCUMENT TYPES & TERMINOLOGY
+════════════════════════════════════════════════
+The company manages 5 types of vessel documents. You MUST call the 'sendAssetDocument' tool to send them when a user requests a file or document:
+1. 'GA_PLAN': General Arrangement Plan (requested as "ga plan", "ga drawing", "arrangement plan", etc.). Note: This is NOT a Gantt chart plan or project plan! It is a drawing document.
+2. 'REGISTRY': Registry Certificate (requested as "registry", "registration certificate", "reg", etc.).
+3. 'INSURANCE': Insurance Certificate (requested as "insurance", "insurance policy", "ins", etc.).
+4. 'STABILITY_BOOKLET': Stability Booklet (requested as "stability booklet", "stability book", etc.).
+5. 'SURVEY_CLASS': Survey/Class Certificate (requested as "survey class", "survey certificate", "class certificate", etc.).
+
+════════════════════════════════════════════════
+EXAMPLES OF GOOD RESPONSES (JSON format)
 ════════════════════════════════════════════════
 
 User: "list all barges with details"
-Good directResponse: "Here are all the barges in our fleet:\n\n1. KB 18 (ARCADEIA ADINATH)\n   Type: BARGE | Status: ACTIVE | Location: Mumbai\n   Registration: MH-1234 | IRS/IV: IV | Built: 2015\n   Dimensions: 60m × 15m × 4m\n\n2. ARCADIA VARUN\n   Type: BARGE | Status: ACTIVE | Location: Hazira\n   ..."
-Bad directResponse: "We have 17 barges." (too brief, no details)
+Good Response:
+{
+  "thought": "User wants a detailed list of all barges. I should call searchAssets.",
+  "toolCalls": [
+    {
+      "tool": "searchAssets",
+      "params": {
+        "query": "barge",
+        "type": "BARGE"
+      }
+    }
+  ],
+  "directResponse": ""
+}
 
-User: "how many tasks are pending?" then "who assigned them?"
-Good directResponse: "Here are the pending tasks with assignee details:\n\n1. 'Bring Water Bottle' — Assigned to Hardik Kateshiya by Bhavya, due 2026-06-21\n2. 'Engine Inspection' — Assigned to Deven by Bhavya, due 2026-06-25"
-Bad directResponse: "Hardik Kateshiya" (missing context, incomplete)
+User: "can you give me the ga plan of the kb -26?"
+Good Response:
+{
+  "thought": "User wants the GA Plan document for vessel KB 26. I should call sendAssetDocument.",
+  "toolCalls": [
+    {
+      "tool": "sendAssetDocument",
+      "params": {
+        "assetName": "KB 26",
+        "docType": "GA_PLAN"
+      }
+    }
+  ],
+  "directResponse": ""
+}
+
+User: "send stability booklet of kb 25"
+Good Response:
+{
+  "thought": "User wants the Stability Booklet document for vessel KB 25. I should call sendAssetDocument.",
+  "toolCalls": [
+    {
+      "tool": "sendAssetDocument",
+      "params": {
+        "assetName": "KB 25",
+        "docType": "STABILITY_BOOKLET"
+      }
+    }
+  ],
+  "directResponse": ""
+}
 
 User: "hi"
-Good directResponse: "Hello ${senderUserName}! 👋 How can I help you today? I can assist with tasks, vessel information, staff queries, or anything else you need."
-Bad directResponse: null or "I have processed your request."`;
+Good Response:
+{
+  "thought": "User is greeting me. I will reply directly.",
+  "toolCalls": [],
+  "directResponse": "Hello ${senderUserName}! 👋 How can I help you today? I can assist with tasks, vessel information, staff queries, or retrieving documents."
+}`;
   }
 
   /**
@@ -884,7 +938,7 @@ CRITICAL RULES:
 2. If you need to perform an action (e.g. create a task, get asset details, send document), you MUST specify the tool in "toolCalls".
 3. After executing a tool, the system will feed back the result to you in a follow-up turn. You can then answer the user in "directResponse".
 4. If the user's intent is unclear or details are missing, ask a clarification question in "directResponse" and do not call any tools.
-5. In tool parameters, you MUST pass the exact assigneeName, userName, or assetName as written by the user. Do NOT attempt to complete, correct, or expand names yourself. For example, if the user says "Hardik", pass "Hardik", not "Hardik Kateshiya".`;
+5. In tool parameters, you MUST pass the exact assigneeName, userName, or assetName as written by the user, including any trailing initials/letters (e.g. if the user says "Hardik K", you MUST pass "Hardik K", not just "Hardik"). Do NOT attempt to complete, correct, or expand names yourself. For example, if the user says "Hardik", pass "Hardik", not "Hardik Kateshiya".`;
 
     const chatMessages: any[] = [
       { role: 'system', content: systemPrompt },
@@ -906,6 +960,7 @@ CRITICAL RULES:
     let lastCreatedTask: any = null;
     let status: string = 'success';
     let options: any[] = [];
+    const executedTools = new Set<string>();
 
     while (loopCount < maxLoops) {
       loopCount++;
@@ -981,6 +1036,22 @@ CRITICAL RULES:
 
         const toolCalls = parsed.toolCalls || parsed.tool_calls;
         if (toolCalls && toolCalls.length > 0) {
+          // Check if these tool calls are new
+          let hasNewTool = false;
+          for (const tc of toolCalls) {
+            const signature = `${tc.tool || tc.name}:${JSON.stringify(tc.params || tc.arguments || {})}`;
+            if (!executedTools.has(signature)) {
+              hasNewTool = true;
+              executedTools.add(signature);
+            }
+          }
+
+          if (!hasNewTool && parsed.directResponse && parsed.directResponse.trim().length > 0) {
+            console.log('[LlmService] Detected tool execution loop repeating same calls. Breaking with directResponse.');
+            finalResponse = parsed.directResponse;
+            break;
+          }
+
           let toolResultsText = '';
           let stopLoop = false;
 
@@ -1033,7 +1104,7 @@ CRITICAL RULES:
 
           chatMessages.push({
             role: 'user',
-            content: `Tool executions completed. Results:${toolResultsText}\n\nGenerate your final directResponse based on these results.`
+            content: `Tool executions completed. Results:${toolResultsText}\n\nYou have already executed the tools. Generate your final directResponse to the user. Do not call the same tools again (leave "toolCalls" as an empty array or omit it).`
           });
 
         } else {
