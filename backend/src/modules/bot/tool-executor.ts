@@ -68,7 +68,15 @@ export class ToolExecutor {
     }
 
     // 2. Validate parameters with Zod
-    const parseResult = def.paramsSchema.safeParse(request.params);
+    const cleanedParams: any = {};
+    if (request.params && typeof request.params === 'object') {
+      for (const [key, value] of Object.entries(request.params)) {
+        if (value !== '') {
+          cleanedParams[key] = value;
+        }
+      }
+    }
+    const parseResult = def.paramsSchema.safeParse(cleanedParams);
     if (!parseResult.success) {
       const errors = parseResult.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ');
       return {
@@ -741,37 +749,95 @@ export class ToolExecutor {
       case 'sendAssetDocument': {
         const { BotDocumentService } = require('./bot.document-service');
         const { WhatsAppService } = require('./whatsapp.service');
+
         const docRecord = await BotDocumentService.getDocumentRecord(params.assetName, params.docType);
+
         if (!docRecord || !docRecord.doc) {
           const replyText = await BotDocumentService.getDocumentReply(params.assetName, params.docType);
           return {
             success: false, tool, data: null, message: replyText, notifications,
-            auditLog: { action: 'TOOL_SEND_ASSET_DOCUMENT', details: `Vessel document not found: ${params.assetName} - ${params.docType}` }
+            auditLog: { action: 'TOOL_SEND_ASSET_DOCUMENT', details: `Not found: ${params.assetName} - ${params.docType}` }
           };
         }
 
-        if (user.phone) {
-          await WhatsAppService.sendWhatsAppDocumentAndLog(
-            user.id,
-            user.phone,
-            docRecord.url,
-            docRecord.doc.fileName,
-            `📄 ${docRecord.doc.description || docRecord.doc.fileName}`
-          );
+        if (!user.phone) {
           return {
-            success: true, tool, data: docRecord.doc,
-            message: `📄 I've retrieved and sent the ${params.docType.toLowerCase().replace('_', ' ')} for ${docRecord.vessel.name} to your WhatsApp.`,
+            success: false, tool, data: null,
+            message: `Found the document but cannot send: no WhatsApp number on file for your account. Please contact admin.`,
             notifications,
-            auditLog: { action: 'TOOL_SEND_ASSET_DOCUMENT', details: `Sent document ${docRecord.doc.fileName} to user ${user.name}` }
-          };
-        } else {
-          return {
-            success: false, tool, data: docRecord.doc,
-            message: `Could not send document: no WhatsApp phone number available in context.`,
-            notifications,
-            auditLog: { action: 'TOOL_SEND_ASSET_DOCUMENT', details: `Failed to send document to ${user.name}: no phone` }
+            auditLog: { action: 'TOOL_SEND_ASSET_DOCUMENT', details: `No phone for user ${user.name}` }
           };
         }
+
+        const doc = docRecord.doc;
+        const vesselName = docRecord.vessel.name;
+        const docLabel = doc.description || doc.fileName;
+
+        // Prefer base64 (DB storage) over file path (legacy/ephemeral)
+        let fileBuffer: Buffer | null = null;
+        if (doc.fileDataB64) {
+          fileBuffer = Buffer.from(doc.fileDataB64, 'base64');
+        } else if (doc.filePath) {
+          // Legacy fallback: try filesystem
+          try {
+            const fs = require('fs');
+            const path = require('path');
+            const absPath = path.resolve(process.cwd(), doc.filePath);
+            if (fs.existsSync(absPath)) {
+              fileBuffer = fs.readFileSync(absPath);
+            }
+          } catch (fsErr) {
+            console.warn('[ToolExecutor] Could not read legacy file path:', doc.filePath, fsErr);
+          }
+        }
+
+        if (!fileBuffer) {
+          return {
+            success: false, tool, data: null,
+            message: `⚠️ Found the record for ${doc.fileName} but the file data is missing. The document may not have been seeded with base64 content. Please re-run the seed script.`,
+            notifications,
+            auditLog: { action: 'TOOL_SEND_ASSET_DOCUMENT', details: `No file data for doc ${doc.id}` }
+          };
+        }
+
+        // Upload to WhatsApp Media API → get media_id → send
+        const mediaId = await WhatsAppService.uploadMediaToWhatsApp(
+          fileBuffer,
+          doc.mimeType || 'application/pdf',
+          doc.fileName
+        );
+
+        if (!mediaId) {
+          return {
+            success: false, tool, data: null,
+            message: `⚠️ Found the ${doc.fileName} but failed to upload it to WhatsApp right now. Please try again in a moment.`,
+            notifications,
+            auditLog: { action: 'TOOL_SEND_ASSET_DOCUMENT', details: `Media upload failed for doc ${doc.id}` }
+          };
+        }
+
+        const caption = `📄 ${docLabel} — ${vesselName}`;
+        await WhatsAppService.sendWhatsAppDocumentById(user.phone, mediaId, doc.fileName, caption);
+
+        // Log the send
+        await prisma.botMessage.create({
+          data: {
+            direction: 'OUTGOING',
+            channel: BotChannel.WHATSAPP,
+            toUserId: user.id,
+            toPhone: WhatsAppService.normalizePhone(user.phone),
+            rawText: caption,
+            messageType: 'DOCUMENT',
+            status: mediaId === 'SIMULATED_MEDIA_ID' ? 'SIMULATED' : 'SENT',
+          },
+        });
+
+        return {
+          success: true, tool, data: doc,
+          message: `📄 Sending *${doc.fileName}* for *${vesselName}* to your WhatsApp now.`,
+          notifications,
+          auditLog: { action: 'TOOL_SEND_ASSET_DOCUMENT', details: `Sent ${doc.fileName} to ${user.name} via media_id` }
+        };
       }
 
       case 'searchTasks': {

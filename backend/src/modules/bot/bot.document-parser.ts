@@ -7,11 +7,12 @@ export interface DocumentQuery {
 export class BotDocumentParser {
   private static mapKeywordToDocType(keyword: string): string | null {
     const kw = keyword.toLowerCase().trim();
-    if (/ga\s*plans?|general\s*arrangements?|ga\s*drawings?|drawing|plan/i.test(kw)) return 'GA_PLAN';
-    if (/registries|registry\s*certs?|registry\s*certificates?|registry|reg/i.test(kw)) return 'REGISTRY';
-    if (/insurances|insurance\s*certs?|insurance\s*certificates?|insurance|ins/i.test(kw)) return 'INSURANCE';
-    if (/stability\s*booklets?|stabilities|stability|sta|booklet/i.test(kw)) return 'STABILITY_BOOKLET';
-    if (/survey\s*certs?|survey\s*certificates?|surveys?|class\s*certs?|class\s*certificates?|class/i.test(kw)) return 'SURVEY_CLASS';
+    // Use word-boundary-aware checks — avoid matching "sta" inside "staff", "class" inside "class of ships", etc.
+    if (/\bga\s*plans?\b|\bgeneral\s*arrangements?\b|\bga\s*drawings?\b/.test(kw)) return 'GA_PLAN';
+    if (/\bregist(?:ry|ries|ration\s*cert(?:ificate)?s?)\b/.test(kw)) return 'REGISTRY';
+    if (/\binsurance(?:\s*cert(?:ificate)?s?)?\b/.test(kw)) return 'INSURANCE';
+    if (/\bstability\s*booklets?\b|\bstability\s*books?\b/.test(kw)) return 'STABILITY_BOOKLET';
+    if (/\bsurvey\s*(?:cert(?:ificate)?s?|class(?:\s*cert(?:ificate)?s?)?)?\b/.test(kw)) return 'SURVEY_CLASS';
     return null;
   }
 
@@ -32,13 +33,13 @@ export class BotDocumentParser {
     // 2. Parse GET queries
     const getPatterns = [
       // Matches "GA plan for ARCADIA SUMERU", "registry certificate of KB 24", etc.
-      /^(?:(?:send|get|share|show|give)(?:\s+me)?(?:\s+the)?\s+)?(ga\s*plans?|general\s*arrangements?|ga\s*drawings?|registries|registry\s*certs?|registry\s*certificates?|registry|reg|insurances|insurance\s*certs?|insurance\s*certificates?|insurance|ins|stability\s*booklets?|stabilities|stability|sta|survey\s*certs?|survey\s*certificates?|surveys?|class\s*certs?|class\s*certificates?|class|drawing|plan|booklet)\s+(?:for|of)\s+(.+)$/i,
+      /^(?:(?:send|get|share|show|give)(?:\s+me)?(?:\s+the)?\s+)?(ga\s*plans?|general\s*arrangements?|ga\s*drawings?|registries|registry\s*certs?|registry\s*certificates?|registry|insurances|insurance\s*certs?|insurance\s*certificates?|insurance|stability\s*booklets?|stabilities|stability|survey\s*certs?|survey\s*certificates?|surveys?|class\s*certs?|class\s*certificates?|class)\s+(?:for|of)\s+(.+)$/i,
       
       // Matches "ARCADIA SUMERU GA plan", "KB 24 registry", etc.
-      /^(.+?)\s+(ga\s*plans?|general\s*arrangements?|ga\s*drawings?|registries|registry\s*certs?|registry\s*certificates?|registry|reg|insurances|insurance\s*certs?|insurance\s*certificates?|insurance|ins|stability\s*booklets?|stabilities|stability|sta|survey\s*certs?|survey\s*certificates?|surveys?|class\s*certs?|class\s*certificates?|class|drawing|plan|booklet)(?:\s*\?)?$/i,
+      /^(.+?)\s+(ga\s*plans?|general\s*arrangements?|ga\s*drawings?|registries|registry\s*certs?|registry\s*certificates?|registry|insurances|insurance\s*certs?|insurance\s*certificates?|insurance|stability\s*booklets?|stabilities|stability|survey\s*certs?|survey\s*certificates?|surveys?|class\s*certs?|class\s*certificates?|class)(?:\s*\?)?$/i,
       
       // Matches "get GA plan KB 24"
-      /^(?:(?:send|get|share|show|give)(?:\s+me)?(?:\s+the)?\s+)?(ga\s*plans?|general\s*arrangements?|ga\s*drawings?|registries|registry\s*certs?|registry\s*certificates?|registry|reg|insurances|insurance\s*certs?|insurance\s*certificates?|insurance|ins|stability\s*booklets?|stabilities|stability|sta|survey\s*certs?|survey\s*certificates?|surveys?|class\s*certs?|class\s*certificates?|class|drawing|plan|booklet)\s+(arcadia\s+\S+|kb\s+\d+|[a-z0-9\s\-]+?)(?:\s*\?)?$/i
+      /^(?:(?:send|get|share|show|give)(?:\s+me)?(?:\s+the)?\s+)?(ga\s*plans?|general\s*arrangements?|ga\s*drawings?|registries|registry\s*certs?|registry\s*certificates?|registry|insurances|insurance\s*certs?|insurance\s*certificates?|insurance|stability\s*booklets?|stabilities|stability|survey\s*certs?|survey\s*certificates?|surveys?|class\s*certs?|class\s*certificates?|class)\s+(arcadia\s+\S+|kb\s+\d+|[a-z0-9\s\-]+?)(?:\s*\?)?$/i
     ];
 
     for (let idx = 0; idx < getPatterns.length; idx++) {

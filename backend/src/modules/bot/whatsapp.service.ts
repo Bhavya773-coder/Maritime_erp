@@ -328,6 +328,110 @@ export class WhatsAppService {
   }
 
   /**
+   * Upload file bytes to WhatsApp Media API. Returns media_id.
+   * media_id is temporary (valid ~30 days). Do not store it — re-upload each time.
+   */
+  public static async uploadMediaToWhatsApp(
+    fileBuffer: Buffer,
+    mimeType: string,
+    fileName: string
+  ): Promise<string | null> {
+    if (!env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID) {
+      console.log(`[SIMULATED] Media upload: ${fileName}`);
+      return 'SIMULATED_MEDIA_ID';
+    }
+
+    const url = `https://graph.facebook.com/${env.WHATSAPP_API_VERSION}/${env.WHATSAPP_PHONE_NUMBER_ID}/media`;
+    const boundary = `----FormBoundary${Date.now()}`;
+    const CRLF = '\r\n';
+
+    const metaPart = Buffer.from(
+      `--${boundary}${CRLF}Content-Disposition: form-data; name="messaging_product"${CRLF}${CRLF}whatsapp${CRLF}`
+    );
+    const typePart = Buffer.from(
+      `--${boundary}${CRLF}Content-Disposition: form-data; name="type"${CRLF}${CRLF}${mimeType}${CRLF}`
+    );
+    const filePart = Buffer.concat([
+      Buffer.from(
+        `--${boundary}${CRLF}Content-Disposition: form-data; name="file"; filename="${fileName}"${CRLF}Content-Type: ${mimeType}${CRLF}${CRLF}`
+      ),
+      fileBuffer,
+      Buffer.from(CRLF),
+    ]);
+    const closing = Buffer.from(`--${boundary}--${CRLF}`);
+    const body = Buffer.concat([metaPart, typePart, filePart, closing]);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.WHATSAPP_ACCESS_TOKEN}`,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Length': String(body.length),
+        },
+        body,
+      });
+      const resBody = await response.json() as any;
+      if (!response.ok) {
+        console.error(`[WhatsApp] Media upload failed: ${JSON.stringify(resBody)}`);
+        return null;
+      }
+      console.log(`[WhatsApp] Media uploaded. media_id: ${resBody.id}`);
+      return resBody.id as string;
+    } catch (err: any) {
+      console.error('[WhatsApp] Media upload exception:', err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Send a document using WhatsApp media_id (NOT a link).
+   * More reliable than link-based sending.
+   */
+  public static async sendWhatsAppDocumentById(
+    toPhone: string,
+    mediaId: string,
+    fileName: string,
+    caption?: string
+  ): Promise<any> {
+    const cleanPhone = this.normalizePhone(toPhone);
+    if (!env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID || mediaId === 'SIMULATED_MEDIA_ID') {
+      console.log(`[SIMULATED] Send document to ${cleanPhone}: ${fileName}`);
+      return { status: 'SIMULATED_DOCUMENT' };
+    }
+    const url = `https://graph.facebook.com/${env.WHATSAPP_API_VERSION}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+    try {
+      const body: any = {
+        messaging_product: 'whatsapp',
+        to: cleanPhone,
+        type: 'document',
+        document: { id: mediaId, filename: fileName },
+      };
+      if (caption) body.document.caption = caption;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.WHATSAPP_ACCESS_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+      const resBody = await response.json() as any;
+      if (!response.ok) {
+        console.error(`[WhatsApp] Send doc failed: ${JSON.stringify(resBody)}`);
+        return { status: 'FAILED', error: resBody };
+      }
+      const wamid = resBody?.messages?.[0]?.id;
+      console.log(`[WhatsApp] Document sent via media_id. wamid: ${wamid}, file: ${fileName}, to: ${cleanPhone}`);
+      return resBody;
+    } catch (err: any) {
+      console.error('[WhatsApp] Send doc exception:', err.message);
+      return { status: 'FAILED', error: err.message };
+    }
+  }
+
+
+  /**
    * Send WhatsApp interactive buttons message using Cloud API
    */
   public static async sendWhatsAppButtons(

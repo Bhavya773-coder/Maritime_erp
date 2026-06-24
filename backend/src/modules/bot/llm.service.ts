@@ -729,6 +729,10 @@ GOLDEN RULES:
 6. NEVER mask, hide, or redact phone numbers (do not replace digits with 'x' or placeholders). Always show the exact, complete, real phone numbers as they are stored in the database context so the user can see them.
 7. When listing staff members, you must be 100% accurate. Copy the names, roles, departments, and phone numbers EXACTLY as they appear in the COMPANY DATABASE context. Do NOT skip any staff members (like Hardik Chavda), and do NOT mix up or mismatch their phone numbers, roles, or departments.
 8. ALWAYS ignore any lists of staff members, phone numbers, or vessel details found in the conversation history (previous messages). ALWAYS generate staff details, phone numbers, and vessel lists dynamically using ONLY the current COMPANY DATABASE context. The conversation history may contain outdated or hallucinated phone numbers—never use it as a source of truth for database information.
+9. When the user asks for a specific document (like GA Plan, Registry, Insurance, Stability Booklet, or Survey Class certificate/PDF) for a vessel:
+   • You MUST call the "sendAssetDocument" tool with the correct assetName and docType.
+   • Do NOT call "getAssetDetails" or "getAssetDocuments" first. Call "sendAssetDocument" immediately.
+   • The system will automatically retrieve the document and send the PDF to the user's WhatsApp.
 
 ════════════════════════════════════════════════
 TASK CREATION RULES
@@ -900,7 +904,6 @@ Good Response:
       role: senderUserRole as Role,
       phone: senderPhone
     };
-
     // Intercept document queries to send the PDF file directly and instantly
     const docQuery = BotDocumentParser.parse(messageText);
     if (docQuery && docQuery.type) {
@@ -989,6 +992,7 @@ CRITICAL RULES:
     let status: string = 'success';
     let options: any[] = [];
     const executedTools = new Set<string>();
+    let lastToolResultSummary = '';
 
     while (loopCount < maxLoops) {
       loopCount++;
@@ -1074,9 +1078,9 @@ CRITICAL RULES:
             }
           }
 
-          if (!hasNewTool && parsed.directResponse && parsed.directResponse.trim().length > 0) {
-            console.log('[LlmService] Detected tool execution loop repeating same calls. Breaking with directResponse.');
-            finalResponse = parsed.directResponse;
+          if (!hasNewTool) {
+            console.log('[LlmService] Detected tool loop repeating. Breaking.');
+            finalResponse = parsed.directResponse?.trim() || lastToolResultSummary || 'Done.';
             break;
           }
 
@@ -1094,6 +1098,10 @@ CRITICAL RULES:
 
             const result = await ToolExecutor.execute(request, user);
             accumulatedNotifications.push(...(result.notifications || []));
+
+            if (result.success && result.message) {
+              lastToolResultSummary = result.message;
+            }
 
             if (result.success && request.tool === 'createTask' && result.data?.id) {
               await ConversationContextService.setRecentTask(senderUserId, result.data.id, result.data.title);
@@ -1150,7 +1158,11 @@ CRITICAL RULES:
     }
 
     if (!finalResponse) {
-      finalResponse = "I have processed your request, but could not produce a final response. Please try again.";
+      if (lastToolResultSummary) {
+        finalResponse = lastToolResultSummary;
+      } else {
+        finalResponse = "I have processed your request, but could not produce a final response. Please try again.";
+      }
     }
 
     return {

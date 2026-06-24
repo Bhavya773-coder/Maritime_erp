@@ -402,12 +402,39 @@ async function main() {
           where: { vesselId: vessel.id, docType: config.docType, fileName: file },
         });
 
+        const relativePath = `documents/${config.folder}/${file}`;
+        const fullPath = path.resolve(process.cwd(), relativePath);
+        
+        let fileDataB64: string | null = null;
+        let fileSizeBytes: number | null = null;
+        
+        const isTargetVessel = 
+          vessel.name.includes('KB 25') || 
+          vessel.name.includes('KB 26') || 
+          vessel.name.includes('KB-25') || 
+          vessel.name.includes('KB-26');
+
+        if (fs.existsSync(fullPath)) {
+          const fileBuffer = fs.readFileSync(fullPath);
+          fileSizeBytes = fileBuffer.length;
+          if (isTargetVessel && fileSizeBytes <= 12 * 1024 * 1024) {
+            fileDataB64 = fileBuffer.toString('base64');
+          } else {
+            fileDataB64 = null;
+          }
+        } else {
+          console.warn(`  [DocSeed] File not found on disk at: ${fullPath}`);
+        }
+
         await prisma.vesselDocument.create({
           data: {
             vesselId: vessel.id,
             docType: config.docType,
             fileName: file,
-            filePath: `documents/${config.folder}/${file}`,
+            filePath: relativePath,
+            fileDataB64,
+            fileSizeBytes,
+            mimeType: 'application/pdf',
             description: `${config.label} — ${vessel.name}`,
           },
         });

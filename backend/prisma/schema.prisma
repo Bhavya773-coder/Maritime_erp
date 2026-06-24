@@ -192,14 +192,17 @@ model Vessel {
 }
 
 model VesselDocument {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  vesselId     String   @map("vessel_id") @db.ObjectId
-  vessel       Vessel   @relation(fields: [vesselId], references: [id])
-  docType      String   @map("doc_type")
-  fileName     String   @map("file_name")
-  filePath     String   @map("file_path")
-  description  String?
-  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  vesselId       String   @map("vessel_id") @db.ObjectId
+  vessel         Vessel   @relation(fields: [vesselId], references: [id])
+  docType        String   @map("doc_type")
+  fileName       String   @map("file_name")
+  mimeType       String   @default("application/pdf") @map("mime_type")
+  filePath       String?  @map("file_path")  // legacy — kept nullable for migration
+  fileDataB64    String?  @map("file_data_b64")  // base64-encoded file bytes (preferred)
+  fileSizeBytes  Int?     @map("file_size_bytes")
+  description    String?
+  uploadedAt     DateTime @default(now()) @map("uploaded_at")
 
   @@index([vesselId])
   @@index([docType])

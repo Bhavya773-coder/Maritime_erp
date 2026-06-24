@@ -85,16 +85,18 @@ export const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
 
   sendAssetDocument: {
     name: 'sendAssetDocument',
-    description: 'Generate a temporary signed URL and send a document to the user via WhatsApp.',
+    description: 'Send a document (such as GA Plan, Registry, Insurance, Stability Booklet, or Survey Certificate/Class) for a vessel directly to the user via WhatsApp. Use this when the user asks for a document, PDF, or certificate of a vessel.',
     paramsSchema: z.object({
       assetName: NonEmptyString.describe('Vessel name'),
       docType: z.enum(['GA_PLAN', 'REGISTRY', 'INSURANCE', 'STABILITY_BOOKLET', 'SURVEY_CLASS']).describe('Document type'),
     }),
-    permissionCheck: (role: Role) => role !== Role.STAFF,
+    permissionCheck: allRoles,
     requiresConfirmation: false,
     idempotent: false,
     examples: [
       { params: { assetName: 'Arcadia Zarah', docType: 'REGISTRY' }, result: 'Document sent via WhatsApp' },
+      { params: { assetName: 'KB 26', docType: 'GA_PLAN' }, result: 'Document sent via WhatsApp' },
+      { params: { assetName: 'KB 25', docType: 'STABILITY_BOOKLET' }, result: 'Document sent via WhatsApp' },
     ],
   },
 

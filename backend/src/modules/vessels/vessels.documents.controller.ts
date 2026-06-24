@@ -4,7 +4,8 @@ import prisma from '../../config/db';
 import { AppError } from '../../middleware/error';
 import { generateSignedUrl } from '../../modules/documents/signed-url-controller';
 
-function buildDownloadUrl(req: AuthRequest, filePath: string): string {
+function buildDownloadUrl(req: AuthRequest, filePath: string | null): string {
+  if (!filePath) return '';
   try {
     return generateSignedUrl(filePath, 3600); // 1 hour expiry
   } catch {
